@@ -54,9 +54,10 @@ function parseArgs(rawArgs) {
 
 function normalizePlayStrategy(value) {
   const normalized = String(value ?? "").trim().toLowerCase().replace(/[-\s]+/g, "_");
-  if (["passive", "legacy_center_tap", "guided_probe"].includes(normalized)) return normalized;
+  if (["passive", "legacy_center_tap", "guided_probe", "adaptive_probe"].includes(normalized)) return normalized;
   if (["legacy", "center", "center_tap"].includes(normalized)) return "legacy_center_tap";
   if (["smart", "probe", "ai_probe", "guided"].includes(normalized)) return "guided_probe";
+  if (["adaptive", "agent", "ai_player", "agent_probe", "vision_ready"].includes(normalized)) return "adaptive_probe";
   return "legacy_center_tap";
 }
 
@@ -781,7 +782,7 @@ async function sampleGameplay(page, seconds, label, options = {}) {
   const endAt = Date.now() + seconds * 1000;
   const startedAt = Date.now();
   let nextLogAt = startedAt;
-  const interactionIntervalMs = strategy === "guided_probe"
+  const interactionIntervalMs = ["guided_probe", "adaptive_probe"].includes(strategy)
     ? seconds >= 600 ? 12000 : 2200
     : seconds >= 600 ? 30000 : 2400;
   const sample = {
@@ -806,6 +807,8 @@ async function sampleGameplay(page, seconds, label, options = {}) {
     try {
       if (strategy === "passive") {
         recordGameplayAction(sample, { type: "wait", note: "passive strategy" }, logLimit);
+      } else if (strategy === "adaptive_probe") {
+        await performAdaptiveProbeStep(page, stepIndex, sample, logLimit);
       } else if (strategy === "guided_probe") {
         await performGuidedProbeStep(page, stepIndex, sample, logLimit);
       } else {
@@ -874,6 +877,66 @@ async function performGuidedProbeStep(page, stepIndex, sample, logLimit) {
 
   await page.mouse.click(point.x, point.y);
   recordGameplayAction(sample, { type: "click", target: target.kind, ...point }, logLimit);
+}
+
+async function performAdaptiveProbeStep(page, stepIndex, sample, logLimit) {
+  if (stepIndex % 4 === 0) {
+    const clicked = await clickLikelyActionButton(page);
+    if (clicked) {
+      recordGameplayAction(sample, {
+        type: "click",
+        target: "action_button",
+        mode: "adaptive_probe",
+        ...clicked,
+      }, logLimit);
+      await page.waitForTimeout(650);
+      return;
+    }
+  }
+
+  if (stepIndex % 8 === 2) {
+    const dismissed = await dismissCommonOverlays(page);
+    recordGameplayAction(sample, {
+      type: dismissed ? "overlay_dismiss" : "overlay_scan",
+      target: "common_overlay",
+      mode: "adaptive_probe",
+      note: dismissed ? "overlay dismissed" : "no overlay affordance found",
+    }, logLimit);
+    return;
+  }
+
+  if (stepIndex % 6 === 3) {
+    const key = ["Space", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"][stepIndex % 5];
+    await page.keyboard.press(key);
+    recordGameplayAction(sample, { type: "keypress", key, mode: "adaptive_probe" }, logLimit);
+    return;
+  }
+
+  const target = await detectGameplayTarget(page);
+  const point = gameplayPoint(target, stepIndex);
+  if (stepIndex % 5 === 1) {
+    const end = dragEndPoint(target, stepIndex + 1);
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await page.mouse.move(end.x, end.y, { steps: 10 });
+    await page.mouse.up();
+    recordGameplayAction(sample, {
+      type: "drag",
+      target: target.kind,
+      mode: "adaptive_probe",
+      from: point,
+      to: end,
+    }, logLimit);
+    return;
+  }
+
+  await page.mouse.click(point.x, point.y);
+  recordGameplayAction(sample, {
+    type: "click",
+    target: target.kind,
+    mode: "adaptive_probe",
+    ...point,
+  }, logLimit);
 }
 
 async function clickLikelyActionButton(page) {
@@ -1280,7 +1343,7 @@ function buildAutoplayManifest(results, videos = []) {
   return {
     status: runs.some((item) => item.action_count > 0) ? "recorded" : "empty",
     strategy: playStrategy,
-    note: "Lightweight browser interaction strategy. It is not yet a vision-agent that understands game goals.",
+    note: "Browser interaction strategy with action logs. adaptive_probe is vision-ready scaffolding, not a paid multimodal decision loop yet.",
     runs,
   };
 }

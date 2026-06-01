@@ -26,6 +26,19 @@
       "video_seconds": 15,
       "devices": ["desktop-normal", "mobile-portrait-normal", "mobile-landscape-normal", "desktop-slow4g"]
     },
+    "ai_probe_alpha": {
+      "play_seconds": 60,
+      "description": "Alpha run for the v1.6 AI-player-ready autoplay strategy.",
+      "ai_mode": "gemini_or_local_fallback",
+      "ai_eval_mode": "low",
+      "max_images": 3,
+      "trace": "off",
+      "play_strategy": "adaptive_probe",
+      "task_retries": 1,
+      "record_video": true,
+      "video_seconds": 15,
+      "devices": ["desktop-normal", "mobile-portrait-normal", "mobile-landscape-normal", "desktop-slow4g"]
+    },
     "full_30min": {
       "play_seconds": 450,
       "total_play_seconds": 1800,

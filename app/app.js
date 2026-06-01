@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.5 alpha.1";
+const APP_VERSION_LABEL = "v1.6 alpha.1";
 
 const state = {
   status: null,
@@ -368,6 +368,7 @@ function renderFieldConfigWorkbench() {
       ${configStat("标签选项", taxonomy.option_count ?? 0, "taxonomy")}
       ${configStat("模板状态", templateAudit.status_label ?? "待检查", templateAuditTone(templateAudit.status))}
     </div>
+    ${autoplayStrategyPanel(state.status?.autoplay)}
     ${templateAuditStrip(templateAudit)}
     <div class="config-workbench-grid">
       <section class="config-mini-panel">
@@ -404,6 +405,9 @@ function renderFieldConfigWorkbench() {
   });
   root.querySelector("[data-copy-template-audit]")?.addEventListener("click", async (event) => {
     await copyTextButton(event.currentTarget, templateAudit.copy_text, "复制模板摘要");
+  });
+  root.querySelector("[data-copy-autoplay-plan]")?.addEventListener("click", async (event) => {
+    await copyTextButton(event.currentTarget, state.status?.autoplay?.copy_text, "复制 AI 玩家摘要");
   });
   bindTaxonomyManager(root, categories);
   root.querySelectorAll("[data-taxonomy-review]").forEach((button) => {
@@ -443,6 +447,69 @@ function templateAuditTone(status) {
   if (status === "aligned") return "good";
   if (["missing_fields", "failed"].includes(status)) return "bad";
   if (["type_warnings", "source_missing", "taxonomy_unchecked", "unchecked"].includes(status)) return "warn";
+  return "";
+}
+
+function autoplayStrategyPanel(autoplay) {
+  if (!autoplay) return "";
+  const strategies = autoplay.strategies ?? [];
+  const current = strategies.find((strategy) => strategy.id === autoplay.current_strategy) ?? strategies[0] ?? {};
+  const profiles = autoplay.profiles ?? [];
+  return `<section class="autoplay-strategy-panel">
+    <div class="autoplay-strategy-head">
+      <div>
+        <span>AI Player</span>
+        <b>${escapeHtml(autoplay.current_strategy_label || "自动试玩策略")}</b>
+        <p>${escapeHtml(autoplay.note || "当前自动试玩使用浏览器启发式动作，后续可接多模态 AI 玩家。")}</p>
+      </div>
+      <div class="autoplay-readiness">
+        ${configStat("默认档位", autoplay.current_profile || "-", "field")}
+        ${configStat("动作记录", autoplay.latest_action_count ?? 0, autoplay.latest_action_count ? "good" : "warn")}
+        ${configStat("多模态决策", autoplay.multimodal_ready ? "已预留" : "未开启", autoplay.multimodal_ready ? "good" : "warn")}
+      </div>
+    </div>
+    <div class="autoplay-strategy-current">
+      <div>
+        <span>当前执行方式</span>
+        <b>${escapeHtml(autoplay.action_provider || "Playwright heuristic")}</b>
+        <p>${escapeHtml(current.description || "-")}</p>
+      </div>
+      <div>
+        <span>API 消耗</span>
+        <b>${escapeHtml(current.api_cost || "不额外消耗 AI API")}</b>
+        <p>${escapeHtml(current.review_note || "-")}</p>
+      </div>
+      <button class="button" data-copy-autoplay-plan type="button">复制 AI 玩家摘要</button>
+    </div>
+    <div class="autoplay-strategy-grid">
+      ${strategies.map(autoplayStrategyCard).join("")}
+    </div>
+    <div class="autoplay-profile-strip">
+      ${profiles.map((profile) => `<span>${escapeHtml(profile.name)}：${escapeHtml(profile.strategy_label)} · ${escapeHtml(profile.total_play_seconds >= 60 ? `${Math.round(profile.total_play_seconds / 60)} 分钟` : `${profile.total_play_seconds} 秒`)}</span>`).join("") || "<span>暂无运行档位。</span>"}
+    </div>
+  </section>`;
+}
+
+function autoplayStrategyCard(strategy) {
+  const tone = strategyTone(strategy);
+  const profileText = strategy.used_by_profiles?.length ? strategy.used_by_profiles.join(", ") : "未绑定档位";
+  return `<article class="autoplay-strategy-card ${escapeAttr(tone)} ${strategy.is_default ? "selected" : ""}">
+    <div>
+      <span>${escapeHtml(strategy.stage || "strategy")}</span>
+      <b>${escapeHtml(strategy.label || strategy.id)}</b>
+      <p>${escapeHtml(strategy.description || "-")}</p>
+    </div>
+    <div class="strategy-action-tags">
+      ${(strategy.actions ?? []).slice(0, 5).map((action) => `<i>${escapeHtml(action)}</i>`).join("")}
+    </div>
+    <small>${escapeHtml(strategy.is_default ? "当前默认" : profileText)}</small>
+  </article>`;
+}
+
+function strategyTone(strategy) {
+  if (strategy?.tone === "good") return "good";
+  if (strategy?.tone === "info") return "info";
+  if (strategy?.tone === "warn") return "warn";
   return "";
 }
 
@@ -855,6 +922,7 @@ function playStrategyLabel(value) {
     passive: "只观察",
     legacy_center_tap: "安全点击",
     guided_probe: "引导探测",
+    adaptive_probe: "AI 预留探测",
   };
   return labels[String(value ?? "")] ?? value ?? "-";
 }
@@ -1035,7 +1103,7 @@ function qualitySignals(game) {
     );
   }
   const autoplay = game.autoplay ?? {};
-  if (autoplay.strategy === "guided_probe" && (collectionQuality.autoplay_action_count ?? 0) === 0) {
+  if (["guided_probe", "adaptive_probe"].includes(autoplay.strategy) && (collectionQuality.autoplay_action_count ?? 0) === 0) {
     addQualitySignal(signals, "warn", "自动试玩未记录动作", "建议重跑采集或改用安全点击策略");
   }
 
@@ -1661,6 +1729,7 @@ function renderConfigContext() {
   const done = steps.filter((step) => step.done).length;
   const fieldSummary = state.configWorkbench?.field_summary ?? {};
   const taxonomySummary = state.configWorkbench?.taxonomy_summary ?? {};
+  const autoplay = state.status?.autoplay ?? {};
   const body = `
     <div class="context-metrics">
       ${contextMetric("进度", `${done}/${steps.length}`, done === steps.length ? "good" : "warn")}
@@ -1676,6 +1745,16 @@ function renderConfigContext() {
         ${contextMetric("标签", String(taxonomySummary.option_count ?? "-"), taxonomySummary.option_count ? "good" : "warn")}
         ${contextMetric("分类", String(taxonomySummary.category_count ?? "-"), "")}
       </div>
+    </section>
+    <section class="context-section">
+      <div class="context-section-head"><span>AI 玩家</span><b>${escapeHtml(autoplay.current_strategy_label || "未配置")}</b></div>
+      <div class="context-metrics">
+        ${contextMetric("档位", autoplay.current_profile || "-", "")}
+        ${contextMetric("动作", String(autoplay.latest_action_count ?? 0), autoplay.latest_action_count ? "good" : "warn")}
+        ${contextMetric("多模态", autoplay.multimodal_ready ? "已预留" : "未开启", autoplay.multimodal_ready ? "good" : "warn")}
+        ${contextMetric("消耗", "不新增", "good")}
+      </div>
+      <p>${escapeHtml(autoplay.note || "当前自动试玩不逐帧调用 Gemini。")}</p>
     </section>
     <section class="context-section">
       <div class="context-section-head"><span>配置健康度</span><b>配置清单</b></div>

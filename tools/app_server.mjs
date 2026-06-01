@@ -259,6 +259,7 @@ async function buildStatus() {
       default_profile: runProfiles.default_profile ?? "",
       profiles: runProfiles.profiles ?? {},
     },
+    autoplay: buildAutoplayWorkbench({ env, runProfiles, games }),
     batch: {
       last_run: summarizeBatchRun(latestBatchRun),
       dry_run: summarizeBatchRun(latestBatchDryRun),
@@ -269,6 +270,130 @@ async function buildStatus() {
       latest_note: ready ? "配置已就绪，可以运行单款或批量评测" : "请先补齐 Gemini 和飞书配置",
     },
   };
+}
+
+const AUTOPLAY_STRATEGIES = [
+  {
+    id: "passive",
+    label: "只观察",
+    stage: "stable",
+    level: "observe",
+    tone: "warn",
+    description: "不主动点击，只等待页面加载并采集截图，适合排查加载、广告遮挡和弱网首屏。",
+    actions: ["等待", "截图", "视频"],
+    api_cost: "不额外消耗 AI API",
+    review_note: "可能停留在 Start 页，需要人工确认是否进入玩法。",
+  },
+  {
+    id: "legacy_center_tap",
+    label: "安全点击",
+    stage: "stable",
+    level: "basic",
+    tone: "warn",
+    description: "按固定中心区域轻量点击，兼容性高，但不理解按钮、教程和玩法目标。",
+    actions: ["中心点击", "下方点击"],
+    api_cost: "不额外消耗 AI API",
+    review_note: "适合保守采集，不适合复杂教程或需要拖拽的游戏。",
+  },
+  {
+    id: "guided_probe",
+    label: "引导探测",
+    stage: "default",
+    level: "heuristic",
+    tone: "good",
+    description: "识别 Play、Start、Continue 等可见按钮，并在游戏区域内点击、拖拽和按方向键。",
+    actions: ["按钮识别", "游戏区点击", "拖拽", "方向键"],
+    api_cost: "不额外消耗 AI API",
+    review_note: "当前推荐策略，适合大多数 H5 游戏的短档和正式档采集。",
+  },
+  {
+    id: "adaptive_probe",
+    label: "AI 预留探测",
+    stage: "alpha",
+    level: "vision-ready",
+    tone: "info",
+    description: "在引导探测基础上增加弹窗扫描、动作意图标记和更完整的动作日志，为后续多模态 AI 玩家预留。",
+    actions: ["按钮识别", "弹窗扫描", "游戏区点击", "拖拽", "方向键", "动作日志"],
+    api_cost: "当前不逐帧调用 Gemini；后续开启多模态决策后才会产生额外 API 消耗",
+    review_note: "Alpha 策略，建议先用于单款或小批量验证，再进入正式 30 分钟档。",
+  },
+];
+
+function buildAutoplayWorkbench({ env, runProfiles, games }) {
+  const profiles = runProfiles.profiles ?? {};
+  const defaultProfile = runProfiles.default_profile ?? Object.keys(profiles)[0] ?? "";
+  const defaultStrategy = normalizeStrategyId(profiles[defaultProfile]?.play_strategy ?? "guided_probe");
+  const aiActionEnabled = String(env.ENABLE_AI_ACTION ?? "false").toLowerCase() === "true";
+  const apiKeyConfigured = Boolean(env.GEMINI_API_KEY);
+  const latestActionCount = games.reduce((sum, game) => {
+    const fromQuality = Number(game.collection_quality?.autoplay_action_count ?? NaN);
+    if (Number.isFinite(fromQuality)) return sum + fromQuality;
+    return sum + (game.autoplay?.runs ?? []).reduce((runSum, run) => runSum + Number(run.action_count ?? 0), 0);
+  }, 0);
+  const profileSummaries = Object.entries(profiles).map(([name, profile]) => ({
+    name,
+    strategy: normalizeStrategyId(profile.play_strategy ?? "legacy_center_tap"),
+    strategy_label: strategyLabel(profile.play_strategy),
+    play_seconds: Number(profile.play_seconds ?? 0),
+    total_play_seconds: Number(profile.total_play_seconds ?? profile.play_seconds ?? 0),
+    ai_mode: profile.ai_mode ?? "",
+    record_video: Boolean(profile.record_video),
+  }));
+  const strategies = AUTOPLAY_STRATEGIES.map((strategy) => ({
+    ...strategy,
+    used_by_profiles: profileSummaries.filter((profile) => profile.strategy === strategy.id).map((profile) => profile.name),
+    is_default: strategy.id === defaultStrategy,
+  }));
+  const current = strategies.find((strategy) => strategy.id === defaultStrategy) ?? strategies.find((strategy) => strategy.id === "guided_probe");
+  const status = current?.id === "adaptive_probe" ? "alpha" : "ready";
+  const statusLabel = status === "alpha" ? "Alpha 策略" : "可用";
+  const copyText = [
+    `AI 玩家状态：${statusLabel}`,
+    `默认档位：${defaultProfile || "-"}`,
+    `默认策略：${current?.label || defaultStrategy}`,
+    `策略 ID：${current?.id || defaultStrategy}`,
+    `当前执行方式：Playwright 启发式自动试玩`,
+    `逐帧多模态决策：${aiActionEnabled && apiKeyConfigured ? "已预留，可后续开启" : "未开启"}`,
+    `API 消耗：当前自动试玩不额外消耗 Gemini，仅 AI 评测步骤会调用 Gemini`,
+    `历史动作记录：${latestActionCount} 次`,
+  ].join("\n");
+  return {
+    status,
+    status_label: statusLabel,
+    provider: env.AI_PROVIDER ?? "gemini",
+    model: env.GEMINI_MODEL ?? "gemini-2.5-flash-lite",
+    api_key_configured: apiKeyConfigured,
+    ai_action_enabled: aiActionEnabled,
+    multimodal_ready: Boolean(aiActionEnabled && apiKeyConfigured),
+    current_profile: defaultProfile,
+    current_strategy: current?.id ?? defaultStrategy,
+    current_strategy_label: current?.label ?? strategyLabel(defaultStrategy),
+    action_provider: "Playwright heuristic",
+    latest_action_count: latestActionCount,
+    note: "当前自动试玩是浏览器启发式操作，不会用 Gemini 做逐帧决策。后续可在此基础上接入多模态 AI 玩家。",
+    profiles: profileSummaries,
+    strategies,
+    copy_text: copyText,
+  };
+}
+
+function normalizeStrategyId(value) {
+  const normalized = String(value ?? "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (["passive", "legacy_center_tap", "guided_probe", "adaptive_probe"].includes(normalized)) return normalized;
+  if (["legacy", "center", "center_tap"].includes(normalized)) return "legacy_center_tap";
+  if (["adaptive", "agent", "ai_player", "agent_probe", "vision_ready"].includes(normalized)) return "adaptive_probe";
+  if (["smart", "probe", "ai_probe", "guided"].includes(normalized)) return "guided_probe";
+  return "legacy_center_tap";
+}
+
+function strategyLabel(value) {
+  const labels = {
+    passive: "只观察",
+    legacy_center_tap: "安全点击",
+    guided_probe: "引导探测",
+    adaptive_probe: "AI 预留探测",
+  };
+  return labels[normalizeStrategyId(value)] ?? value ?? "-";
 }
 
 async function buildConfigWorkbench() {
