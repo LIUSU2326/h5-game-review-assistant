@@ -24,6 +24,11 @@ function parseArgs(rawArgs) {
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];
     if (!arg.startsWith("--")) continue;
+    if (arg.includes("=")) {
+      const [key, ...valueParts] = arg.slice(2).split("=");
+      parsedArgs[key] = valueParts.join("=");
+      continue;
+    }
     const key = arg.slice(2);
     const next = rawArgs[i + 1];
     if (!next || next.startsWith("--")) {
