@@ -2445,6 +2445,82 @@ body.lightbox-open {
   background: var(--pink);
 }
 
+.template-audit-strip {
+  min-height: 92px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(360px, .9fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.template-audit-strip.good {
+  background: color-mix(in oklch, var(--mint) 42%, var(--surface));
+  border-color: color-mix(in oklch, var(--mint) 52%, var(--ink));
+}
+
+.template-audit-strip.warn {
+  background: color-mix(in oklch, var(--peach) 48%, var(--surface));
+}
+
+.template-audit-strip.bad {
+  background: color-mix(in oklch, var(--pink) 50%, var(--surface));
+}
+
+.template-audit-main {
+  display: grid;
+  gap: 5px;
+}
+
+.template-audit-main span,
+.template-audit-fingerprints span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.template-audit-main b {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.template-audit-main p {
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.template-audit-fingerprints {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.template-audit-fingerprints div {
+  min-width: 0;
+  border: 1px solid color-mix(in oklch, var(--hairline) 76%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--surface) 68%, transparent);
+  padding: 10px;
+  display: grid;
+  gap: 5px;
+}
+
+.template-audit-fingerprints code {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .config-workbench-grid {
   display: grid;
   grid-template-columns: minmax(320px, .9fr) minmax(420px, 1.2fr) minmax(260px, .9fr);

@@ -278,6 +278,7 @@ async function buildConfigWorkbench() {
   const mappingFile =
     feishu?.bitable?.tables?.evaluation_results?.field_mapping_file ?? "mock_bitable/feishu_field_mapping.csv";
   const mappingPath = resolveDataFile(mappingFile);
+  const mappingText = await readTextOrNull(mappingPath);
   const fieldMappings = await readCsvOrEmpty(mappingPath);
   const remoteFields = fieldsCheck?.remote_fields ?? [];
   const remoteByName = new Map(remoteFields.map((field) => [field.field_name, field]));
@@ -341,10 +342,22 @@ async function buildConfigWorkbench() {
       })),
     };
   });
+  const templateAudit = buildTemplateAudit({
+    fields,
+    fieldDiagnostics,
+    fieldsCheck,
+    mappingFile,
+    mappingPath,
+    mappingText,
+    remoteFields,
+    taxonomy,
+    taxonomyCategories,
+  });
 
   return {
     generated_at: new Date().toISOString(),
     mapping_file: path.relative(dataRoot, mappingPath).replaceAll("\\", "/"),
+    template_audit: templateAudit,
     field_summary: {
       status: fieldsCheck?.status ?? "unchecked",
       total_expected: fields.length,
@@ -381,6 +394,113 @@ async function buildConfigWorkbench() {
     },
     taxonomy_categories: taxonomyCategories,
   };
+}
+
+function buildTemplateAudit({ fields, fieldDiagnostics, fieldsCheck, mappingFile, mappingPath, mappingText, remoteFields, taxonomy, taxonomyCategories }) {
+  const missing = fields.filter((field) => field.issues.includes("missing_remote_field"));
+  const typeWarnings = fields.filter((field) => field.issues.includes("type_warning"));
+  const sourceMissing = fields.filter((field) => field.issues.includes("missing_source_path"));
+  const blocking = fieldDiagnostics.filter((item) => item.severity === "bad");
+  const warnings = fieldDiagnostics.filter((item) => item.severity === "warn");
+  const normalizedRemote = [...remoteFields]
+    .map((field) => ({
+      field_name: field.field_name,
+      type: field.type,
+      type_label: field.type_label,
+    }))
+    .sort((a, b) => a.field_name.localeCompare(b.field_name));
+  const mappingHash = sha256(mappingText ?? "");
+  const remoteHash = sha256(JSON.stringify(normalizedRemote));
+  const taxonomyHash = sha256(JSON.stringify(
+    taxonomyCategories
+      .map((category) => ({
+        category: category.category,
+        total: category.total,
+        enabled: category.enabled,
+        ids: (category.options ?? []).map((option) => option.id).sort(),
+      }))
+      .sort((a, b) => a.category.localeCompare(b.category)),
+  ));
+  const status = templateAuditStatus({ fieldsCheck, missing, typeWarnings, sourceMissing, taxonomy });
+  const statusLabel = templateAuditStatusLabel(status);
+  const version = `tpl-${fields.length}-${mappingHash.slice(0, 8)}`;
+  const nextActions = templateAuditNextActions({ status, missing, typeWarnings, sourceMissing, taxonomy });
+  const copyText = [
+    `模板版本：${version}`,
+    `状态：${statusLabel}`,
+    `字段映射：${mappingFile}`,
+    `预期字段：${fields.length}`,
+    `飞书字段：${remoteFields.length}`,
+    `缺失字段：${missing.length}`,
+    `类型风险：${typeWarnings.length}`,
+    `来源缺失：${sourceMissing.length}`,
+    `标签选项：${taxonomy?.option_count ?? 0}`,
+    `Mapping SHA256：${mappingHash}`,
+    `Remote Schema SHA256：${remoteHash}`,
+    `Taxonomy SHA256：${taxonomyHash}`,
+    nextActions.length ? `下一步：${nextActions.join("；")}` : "下一步：可用于写入和批量评测",
+  ].join("\n");
+  return {
+    status,
+    status_label: statusLabel,
+    version,
+    mapping_file: mappingFile,
+    mapping_path: path.relative(dataRoot, mappingPath).replaceAll("\\", "/"),
+    mapping_sha256: mappingHash,
+    remote_schema_sha256: remoteHash,
+    taxonomy_sha256: taxonomyHash,
+    expected_fields: fields.length,
+    required_fields: fields.filter((field) => field.required).length,
+    remote_fields: remoteFields.length,
+    missing_fields: missing.length,
+    type_warnings: typeWarnings.length,
+    source_missing: sourceMissing.length,
+    blocking_issues: blocking.length,
+    warning_issues: warnings.length,
+    taxonomy_options: taxonomy?.option_count ?? 0,
+    taxonomy_synced_at: taxonomy?.synced_at ?? taxonomy?.checked_at ?? "",
+    checked_at: fieldsCheck?.checked_at ?? "",
+    next_actions: nextActions,
+    copy_text: copyText,
+  };
+}
+
+function templateAuditStatus({ fieldsCheck, missing, typeWarnings, sourceMissing, taxonomy }) {
+  if (!fieldsCheck || !fieldsCheck.status) return "unchecked";
+  if (fieldsCheck.status === "failed") return "failed";
+  if (missing.length) return "missing_fields";
+  if (typeWarnings.length) return "type_warnings";
+  if (sourceMissing.length) return "source_missing";
+  if (!taxonomy?.option_count) return "taxonomy_unchecked";
+  return "aligned";
+}
+
+function templateAuditStatusLabel(status) {
+  return {
+    aligned: "模板一致",
+    unchecked: "待检查",
+    failed: "检查失败",
+    missing_fields: "缺字段",
+    type_warnings: "类型风险",
+    source_missing: "来源缺失",
+    taxonomy_unchecked: "标签待同步",
+  }[status] || status || "未知";
+}
+
+function templateAuditNextActions({ status, missing, typeWarnings, sourceMissing, taxonomy }) {
+  if (status === "aligned") return [];
+  const actions = [];
+  if (status === "unchecked") actions.push("先运行快速检查或检查字段");
+  if (status === "failed") actions.push("检查飞书凭证、应用权限和文档应用授权");
+  if (missing.length) actions.push(`创建或修正 ${missing.length} 个飞书字段`);
+  if (typeWarnings.length) actions.push(`核对 ${typeWarnings.length} 个字段类型`);
+  if (sourceMissing.length) actions.push(`补充 ${sourceMissing.length} 个字段来源路径`);
+  if (!taxonomy?.option_count) actions.push("同步标签库或导入 Taxonomy Options");
+  return actions;
+}
+
+function sha256(text) {
+  return crypto.createHash("sha256").update(String(text ?? ""), "utf8").digest("hex");
 }
 
 async function buildTaxonomySuggestionWorkbench() {

@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.4 alpha.2";
+const APP_VERSION_LABEL = "v1.5 alpha.1";
 
 const state = {
   status: null,
@@ -342,6 +342,7 @@ function renderFieldConfigWorkbench() {
   const fields = workbench.fields ?? [];
   const categories = workbench.taxonomy_categories ?? [];
   const diagnostics = workbench.diagnostics ?? {};
+  const templateAudit = workbench.template_audit ?? {};
   const suggestionWorkbench = state.taxonomySuggestions ?? {};
   const diagnosticItems = diagnostics.items ?? [];
   const issueFields = fields.filter((field) => field.issues?.length);
@@ -365,8 +366,9 @@ function renderFieldConfigWorkbench() {
       ${configStat("飞书缺失", fieldSummary.missing_remote ?? 0, fieldSummary.missing_remote ? "bad" : "good")}
       ${configStat("类型风险", fieldSummary.type_warnings ?? 0, fieldSummary.type_warnings ? "warn" : "good")}
       ${configStat("标签选项", taxonomy.option_count ?? 0, "taxonomy")}
-      ${configStat("诊断项", diagnostics.total ?? 0, diagnostics.blocking ? "bad" : diagnostics.warnings ? "warn" : "good")}
+      ${configStat("模板状态", templateAudit.status_label ?? "待检查", templateAuditTone(templateAudit.status))}
     </div>
+    ${templateAuditStrip(templateAudit)}
     <div class="config-workbench-grid">
       <section class="config-mini-panel">
         <div class="mini-panel-head">
@@ -400,6 +402,9 @@ function renderFieldConfigWorkbench() {
   root.querySelector("[data-copy-field-diagnostics]")?.addEventListener("click", async (event) => {
     await copyFieldDiagnostics(event.currentTarget, diagnostics.copy_text);
   });
+  root.querySelector("[data-copy-template-audit]")?.addEventListener("click", async (event) => {
+    await copyTextButton(event.currentTarget, templateAudit.copy_text, "复制模板摘要");
+  });
   bindTaxonomyManager(root, categories);
   root.querySelectorAll("[data-taxonomy-review]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -412,6 +417,33 @@ function renderFieldConfigWorkbench() {
 
 function configStat(label, value, tone = "") {
   return `<div class="config-stat ${escapeAttr(tone)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`;
+}
+
+function templateAuditStrip(audit) {
+  const tone = templateAuditTone(audit.status);
+  const nextActions = audit.next_actions ?? [];
+  const hash = audit.mapping_sha256 ? audit.mapping_sha256.slice(0, 12) : "-";
+  const remoteHash = audit.remote_schema_sha256 ? audit.remote_schema_sha256.slice(0, 12) : "-";
+  return `<section class="template-audit-strip ${escapeAttr(tone)}">
+    <div class="template-audit-main">
+      <span>Template audit</span>
+      <b>${escapeHtml(audit.version || "未生成模板版本")}</b>
+      <p>${escapeHtml(nextActions.length ? nextActions.join("；") : "字段映射、飞书远端字段和标签库当前可用于批量写入。")}</p>
+    </div>
+    <div class="template-audit-fingerprints">
+      <div><span>Mapping</span><code>${escapeHtml(hash)}</code></div>
+      <div><span>Remote</span><code>${escapeHtml(remoteHash)}</code></div>
+      <div><span>Fields</span><code>${escapeHtml(`${audit.expected_fields ?? "-"} / ${audit.remote_fields ?? "-"}`)}</code></div>
+    </div>
+    <button class="button" data-copy-template-audit type="button">复制模板摘要</button>
+  </section>`;
+}
+
+function templateAuditTone(status) {
+  if (status === "aligned") return "good";
+  if (["missing_fields", "failed"].includes(status)) return "bad";
+  if (["type_warnings", "source_missing", "taxonomy_unchecked", "unchecked"].includes(status)) return "warn";
+  return "";
 }
 
 function fieldMapRow(field) {
@@ -688,7 +720,11 @@ function diagnosticTone(severity) {
 }
 
 async function copyFieldDiagnostics(button, text) {
-  const content = text || "暂无字段诊断信息。";
+  await copyTextButton(button, text || "暂无字段诊断信息。", "复制诊断摘要");
+}
+
+async function copyTextButton(button, text, fallbackLabel = "复制") {
+  const content = text || "暂无可复制内容。";
   try {
     await navigator.clipboard.writeText(content);
     const previous = button.textContent;
@@ -699,6 +735,7 @@ async function copyFieldDiagnostics(button, text) {
   } catch {
     state.consoleText = `${state.consoleText}\n${content}`.trim();
     renderJobs();
+    if (button) button.textContent = fallbackLabel;
   }
 }
 
