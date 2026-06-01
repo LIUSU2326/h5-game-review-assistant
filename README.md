@@ -15,7 +15,7 @@
 
 如果只是想试用工具，可以直接下载 portable 版本：
 
-- [H5游戏评测助手-v1.3.0-alpha.7.zip](downloads/H5游戏评测助手-v1.3.0-alpha.7.zip)
+- [H5游戏评测助手-v1.3.0-alpha.8.zip](downloads/H5游戏评测助手-v1.3.0-alpha.8.zip)
 
 下载后解压，运行里面的 `H5游戏评测助手.exe`。首次使用仍需要在工具里填写 Gemini API Key 和飞书多维表格配置。
 

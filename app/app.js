@@ -1,3 +1,5 @@
+const APP_VERSION_LABEL = "v1.3 alpha.8";
+
 const state = {
   status: null,
   configWorkbench: null,
@@ -137,14 +139,10 @@ function activateSection(targetId, preferredView, workbenchMode) {
     workbench.dataset.mode = nextMode || "workbench";
   }
   setNavigationActive();
-  const nextTarget = document.getElementById(targetId);
   const scrollHost = $("#mainWorkspace") ?? document.documentElement;
-  if (nextTarget && scrollHost) {
+  if (scrollHost) {
     requestAnimationFrame(() => {
-      scrollHost.scrollTo({
-        top: Math.max(0, nextTarget.offsetTop - scrollHost.offsetTop - 8),
-        behavior: "smooth",
-      });
+      scrollHost.scrollTo({ top: 0, behavior: "auto" });
     });
   }
   renderContextPanel();
@@ -347,7 +345,7 @@ function renderFieldConfigWorkbench() {
   root.innerHTML = `
     <div class="config-workbench-head">
       <div>
-        <span>v1.3 alpha.7</span>
+        <span>${APP_VERSION_LABEL}</span>
         <h2>字段与标签库</h2>
         <p>只读总览：先看清字段映射、飞书检查和标签库同步状态。</p>
       </div>
@@ -1629,7 +1627,7 @@ function renderConfigContext() {
       ${contextMetric("截图", feishu.upload_screenshots ? "上传" : "本地", "")}
     </div>
     <section class="context-section">
-      <div class="context-section-head"><span>字段与标签库</span><b>v1.3 alpha.7</b></div>
+      <div class="context-section-head"><span>字段与标签库</span><b>${APP_VERSION_LABEL}</b></div>
       <div class="context-metrics">
         ${contextMetric("字段", String(fieldSummary.total_expected ?? "-"), "")}
         ${contextMetric("缺失", String(fieldSummary.missing_remote ?? "-"), fieldSummary.missing_remote ? "bad" : "good")}
@@ -1698,10 +1696,11 @@ function reviewContextMarkup(game, full = false) {
   const screenshotCount = game.screenshots?.length ?? 0;
   const videoCount = game.videos?.length ?? 0;
   const flagCount = signals.length;
+  const shotStrip = shotStripMarkup(game, { limit: full ? 6 : 4, full });
 
   const body = `
     ${qualityPanel(signals)}
-    <div class="shot-strip ${full ? "large" : ""}">${(game.screenshots ?? []).slice(0, full ? 6 : 4).map(shot).join("") || `<div class="empty-state">暂无截图</div>`}</div>
+    ${shotStrip}
     <div class="evidence-line">
       <span>本地视频</span>
       ${(game.videos ?? []).length
@@ -1741,12 +1740,22 @@ function selectedGamePreview(game, options = {}) {
     ${qualityPanel(signals)}
     ${autoplayLine(game)}
     ${autoplayLogPreview(game, 4)}
-    <div class="shot-strip compact">${(game.screenshots ?? []).slice(0, shotLimit).map(shot).join("") || `<div class="empty-state compact">暂无截图</div>`}</div>
+    ${shotStripMarkup(game, { limit: shotLimit, compact: true })}
     ${options.includeActions ? `<div class="context-actions compact-actions">
       <button class="button" data-rerun="collect" type="button">重跑采集</button>
       <button class="button" data-rerun="ai" type="button">重跑 AI</button>
     </div>` : ""}
   </section>`;
+}
+
+function shotStripMarkup(game, { limit = 4, full = false, compact = false } = {}) {
+  const items = (game.screenshots ?? []).slice(0, limit);
+  const rows = Math.max(1, Math.ceil(Math.max(items.length, 1) / 2));
+  const cardHeight = full ? 170 : compact ? 118 : 132;
+  const minHeight = items.length ? rows * cardHeight + Math.max(0, rows - 1) * 10 : 0;
+  const classes = ["shot-strip", full ? "large" : "", compact ? "compact" : ""].filter(Boolean).join(" ");
+  const style = minHeight ? ` style="min-height:${minHeight}px"` : "";
+  return `<div class="${escapeAttr(classes)}"${style}>${items.map(shot).join("") || `<div class="empty-state compact">暂无截图</div>`}</div>`;
 }
 
 function autoplayLine(game) {
@@ -1940,7 +1949,7 @@ function contextFileActions(game) {
 
 function fileActionLink(label, href, exists, missingLabel) {
   if (!exists) {
-    return `<span class="button is-disabled" aria-disabled="true" title="${escapeAttr(missingLabel)}">${escapeHtml(missingLabel)}</span>`;
+    return `<span class="status-token disabled" aria-disabled="true" title="${escapeAttr(missingLabel)}">${escapeHtml(missingLabel)}</span>`;
   }
   return `<a class="button" href="${escapeAttr(href)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
 }
