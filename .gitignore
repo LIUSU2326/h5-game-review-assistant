@@ -5,6 +5,8 @@ node_modules/
 npm-debug.log*
 logs/
 tmp/
+.build-temp/
+.build-cache/
 batch/
 docs/FULL30_*.md
 docs/RC1*.md

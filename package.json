@@ -30,7 +30,7 @@
     "app": "node tools/app_server.mjs",
     "app:check": "node tools/run_quick_checks.mjs",
     "desktop": "electron desktop/main.mjs",
-    "dist:win": "electron-builder --win portable"
+    "dist:win": "node tools/run_dist_win.mjs"
   },
   "build": {
     "appId": "local.h5-game-eval-assistant",
