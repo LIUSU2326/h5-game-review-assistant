@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.3 rc.1";
+const APP_VERSION_LABEL = "v1.3.0";
 
 const state = {
   status: null,
