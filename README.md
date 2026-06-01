@@ -88,6 +88,7 @@ npm run app:check
 ## 文档
 
 - `docs/首次启动说明.md`
+- `docs/下载与试用说明.md`
 - `docs/飞书接入用户操作指南.md`
 - `docs/本地工具UI与EXE打包说明.md`
 - `docs/VERSION_ROADMAP.md`

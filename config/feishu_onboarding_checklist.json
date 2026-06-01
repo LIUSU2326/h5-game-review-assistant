@@ -45,9 +45,9 @@
     },
     {
       "id": "fill_config",
-      "label_zh": "填写 feishu.local.json",
+      "label_zh": "填写工具配置",
       "status": "manual_secret",
-      "guide": "复制 config/feishu.local.template.json 为 config/feishu.local.json 并填写 App ID、App Secret、app_token、table_id。"
+      "guide": "在工具的配置中心填写 App ID、App Secret、多维表格 URL，保存后再运行快速检查。"
     },
     {
       "id": "resolve_wiki",
