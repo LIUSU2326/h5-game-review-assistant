@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.6 alpha.1";
+const APP_VERSION_LABEL = "v1.6 alpha.2";
 
 const state = {
   status: null,
@@ -61,6 +61,7 @@ const elements = {
   cancelJobButton: $("#cancelJobButton"),
   batchGameIds: $("#batchGameIds"),
   batchSummary: $("#batchSummary"),
+  autoplayPreflight: $("#autoplayPreflight"),
   setupSteps: $("#setupSteps"),
   setupProgressText: $("#setupProgressText"),
   setupMeter: $("#setupMeter"),
@@ -92,7 +93,11 @@ function bindEvents() {
   $("#batchDryRunButton").addEventListener("click", () => runBatch(false));
   $("#batchDryRunPanelButton").addEventListener("click", () => runBatch(false));
   $("#batchRunButton").addEventListener("click", () => runBatch(true));
-  elements.batchGameIds.addEventListener("input", renderBatchSummary);
+  elements.batchGameIds.addEventListener("input", () => {
+    renderBatchSummary();
+    renderAutoplayPreflight();
+    if (["workbench", "queue"].includes(contextMode())) renderContextPanel();
+  });
   $("#toggleConsoleButton").addEventListener("click", toggleConsole);
   elements.cancelJobButton.addEventListener("click", cancelActiveJob);
   $("#shotLightboxClose")?.addEventListener("click", closeShotPreview);
@@ -114,16 +119,29 @@ function bindEvents() {
   elements.gameSelect.addEventListener("change", () => {
     state.selectedGameId = elements.gameSelect.value;
     renderGames();
+    renderAutoplayPreflight();
+    renderContextPanel();
   });
   $("#runProfile").addEventListener("change", () => {
     applyRunProfile($("#runProfile").value);
     renderBatchSummary();
-    if (contextMode() === "queue") renderContextPanel();
+    renderAutoplayPreflight();
+    renderContextPanel();
   });
   $("#playStrategy").addEventListener("change", () => {
     renderRunProfileNote();
     renderBatchSummary();
+    renderAutoplayPreflight();
     renderContextPanel();
+  });
+  ["#playSeconds", "#aiMode", "#writeFeishu", "#forceCollect", "#forceAi", "#batchContinueOnError"].forEach((selector) => {
+    $(selector)?.addEventListener("change", () => {
+      if (state.status) renderStatus();
+      renderRunProfileNote();
+      renderBatchSummary();
+      renderAutoplayPreflight();
+      renderContextPanel();
+    });
   });
 }
 
@@ -187,8 +205,9 @@ async function refreshStatus() {
   renderRunProfiles();
   renderGames();
   renderBatchSummary();
+  renderAutoplayPreflight();
   renderBatchHistoryPanel();
-  if (contextMode() === "queue") renderContextPanel();
+  renderContextPanel();
 }
 
 async function refreshJobs() {
@@ -931,6 +950,24 @@ function currentPlayStrategy(profile = null) {
   return $("#playStrategy")?.value || profile?.play_strategy || "legacy_center_tap";
 }
 
+function currentRunProfileName() {
+  return $("#runProfile")?.value || state.status?.run_profiles?.default_profile || "";
+}
+
+function currentRunProfile() {
+  const profileName = currentRunProfileName();
+  return state.status?.run_profiles?.profiles?.[profileName] ?? {};
+}
+
+function renderAutoplayPreflight() {
+  if (!elements.autoplayPreflight) return;
+  const preflight = buildAutoplayPreflight();
+  elements.autoplayPreflight.innerHTML = autoplayPreflightMarkup(preflight);
+  elements.autoplayPreflight.querySelector("[data-copy-autoplay-preflight]")?.addEventListener("click", async (event) => {
+    await copyTextButton(event.currentTarget, preflight.copyText, "复制预检摘要");
+  });
+}
+
 function renderGames() {
   const games = state.status.games ?? [];
   const overview = buildResultOverview(games);
@@ -1598,6 +1635,7 @@ function renderWorkbenchContext() {
   const games = state.status?.games ?? [];
   const overview = buildResultOverview(games);
   const game = selectedGame();
+  const preflight = buildAutoplayPreflight();
   const subtitle = game
     ? `当前选中：${game.game_name || game.game_id}`
     : "导入游戏后，这里会显示当前批次和选中游戏。";
@@ -1611,6 +1649,7 @@ function renderWorkbenchContext() {
     <section class="context-section">
       <div class="context-section-head"><span>当前队列</span><b>${escapeHtml(overview.latestBatchText)}</b></div>
     </section>
+    ${autoplayPreflightMarkup(preflight, { compact: true, copyable: false })}
     ${game ? selectedGamePreview(game, { shotLimit: 2 }) : contextEmpty("暂无选中游戏。")}
   `;
   return contextShell({
@@ -1632,6 +1671,7 @@ function renderQueueContext() {
   const running = state.jobs.filter((job) => ["running", "cancelling"].includes(job.status));
   const tasks = detailBatch?.tasks ?? [];
   const estimate = currentBatchEstimate();
+  const preflight = buildAutoplayPreflight();
   const body = detailBatch ? `
     <div class="context-metrics">
       ${contextMetric("成功", detailBatch.totals?.success ?? 0, "good")}
@@ -1648,6 +1688,7 @@ function renderQueueContext() {
       <div class="context-section-head"><span>耗时估算</span><b>${escapeHtml(`${estimate.count} 款 · ${estimate.profileName}`)}</b></div>
       ${batchEstimateMarkup(estimate)}
     </section>` : ""}
+    ${autoplayPreflightMarkup(preflight, { compact: true, copyable: false })}
     <section class="context-section">
       <div class="context-section-head"><span>批次历史</span><b>${history.length} 次</b></div>
       <div class="context-list">${history.slice(0, 5).map(contextBatchRunRow).join("") || contextEmpty("暂无历史批次。")}</div>
@@ -1658,6 +1699,7 @@ function renderQueueContext() {
     </section>
   ` : `
     ${contextEmpty("还没有批量队列记录。先使用“预演队列”确认会跑哪些游戏。")}
+    ${autoplayPreflightMarkup(preflight, { compact: true, copyable: false })}
     <section class="context-console"><b>任务输出</b><pre>${escapeHtml(latestJobOutput())}</pre></section>
   `;
   return contextShell({
@@ -2117,6 +2159,11 @@ function bindContextPanelActions() {
   $$("[data-context-export-batch-report]").forEach((button) => {
     button.addEventListener("click", () => exportBatchReport(selectedBatchForDetail() ?? latestBatchRecord(state.status?.batch)));
   });
+  elements.detailPanel?.querySelectorAll("[data-copy-autoplay-preflight]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      await copyTextButton(event.currentTarget, buildAutoplayPreflight().copyText, "复制预检摘要");
+    });
+  });
   $("[data-export-evidence]")?.addEventListener("click", () => exportEvidencePackage(game?.game_id));
   $$("[data-shot-preview]").forEach((link) => {
     link.addEventListener("click", (event) => {
@@ -2407,14 +2454,19 @@ function selectedBatchGameIds() {
 }
 
 function currentBatchEstimate() {
-  const profileName = $("#runProfile")?.value || state.status?.run_profiles?.default_profile || "";
-  const profile = state.status?.run_profiles?.profiles?.[profileName] ?? {};
+  const profileName = currentRunProfileName();
+  const profile = currentRunProfile();
   const count = selectedBatchGameIds().length || (state.status?.games ?? []).length;
+  return runEstimateForCount(count, profileName, profile);
+}
+
+function runEstimateForCount(count, profileName = currentRunProfileName(), profile = currentRunProfile()) {
   if (!count) return null;
   const deviceCount = Math.max(1, Array.isArray(profile.devices) ? profile.devices.length : 4);
-  const playSeconds = Math.max(0, Number(profile.play_seconds ?? 0));
+  const playSeconds = Math.max(0, Number($("#playSeconds")?.value || profile.play_seconds || 0));
+  const totalProfileSeconds = Number(profile.total_play_seconds ?? 0);
   const collectSeconds = Math.max(
-    Number(profile.total_play_seconds ?? 0),
+    totalProfileSeconds,
     playSeconds * deviceCount,
   );
   const videoSeconds = profile.record_video ? Math.max(0, Number(profile.video_seconds ?? 0)) : 0;
@@ -2439,6 +2491,142 @@ function currentBatchEstimate() {
     totalMs: perGameMs * count,
     retryBufferMs: perGameMs * count * taskRetries,
   };
+}
+
+function buildAutoplayPreflight() {
+  const profileName = currentRunProfileName();
+  const profile = currentRunProfile();
+  const strategy = currentPlayStrategy(profile);
+  const strategyLabel = playStrategyLabel(strategy);
+  const scope = autoplayPreflightScope();
+  const estimate = runEstimateForCount(scope.count, profileName, profile);
+  const config = state.status?.config ?? {};
+  const geminiReady = Boolean(config.gemini?.api_key_configured);
+  const feishuReady = Boolean(config.feishu?.ready);
+  const aiMode = $("#aiMode")?.value || profileAiMode(profile);
+  const wantsFeishu = $("#writeFeishu")?.checked !== false;
+  const totalSeconds = Math.max(
+    Number(profile.total_play_seconds ?? 0),
+    Number($("#playSeconds")?.value || profile.play_seconds || 0) * Math.max(1, Array.isArray(profile.devices) ? profile.devices.length : 4),
+  );
+  const items = [];
+
+  if (!scope.count) {
+    items.push(preflightItem("bad", "没有可运行游戏", "先导入 H5 链接，或在队列里填入 game_id。"));
+  }
+  if (totalSeconds >= 1800 && scope.count > 1) {
+    items.push(preflightItem("warn", "正式 30 分钟批量耗时较长", "建议先用 poc_review 或 ai_probe_alpha 跑单款，确认截图、视频和飞书写入都正常。"));
+  }
+  if (strategy === "adaptive_probe" && scope.count > 1) {
+    items.push(preflightItem("warn", "Alpha 策略建议先小批量", "AI 预留探测会记录更多动作日志，适合验证后再扩大到全量。"));
+  }
+  if (strategy === "passive") {
+    items.push(preflightItem("warn", "只观察不会主动进入玩法", "适合排查加载和广告遮挡，但可能停在 Start 页。"));
+  }
+  if (strategy === "legacy_center_tap") {
+    items.push(preflightItem("info", "安全点击偏保守", "兼容性高，但遇到拖拽、教程和弹窗时可能采不到核心玩法。"));
+  }
+  if (aiMode === "live" && !geminiReady) {
+    items.push(preflightItem("bad", "Gemini 尚未配置", "会回退或失败。先到配置中心填 API Key，或把 AI 模式改成本地兜底。"));
+  }
+  if (wantsFeishu && !feishuReady) {
+    items.push(preflightItem("warn", "飞书未完全就绪", "本地证据仍会生成，但写入多维表格可能失败。"));
+  }
+  if (!wantsFeishu) {
+    items.push(preflightItem("info", "本次不写入飞书", "截图、视频和 JSON 报告会留在本地证据目录。"));
+  }
+  if ($("#forceCollect")?.checked) {
+    items.push(preflightItem("info", "会重新采集证据", "旧截图和视频不会作为本次判断依据。"));
+  }
+  if ($("#forceAi")?.checked) {
+    items.push(preflightItem("info", "会重新生成 AI 评测", "会重新读取截图和字段库，覆盖本地 AI 结果。"));
+  }
+  if ($("#batchContinueOnError")?.checked === false && scope.count > 1) {
+    items.push(preflightItem("warn", "失败后会停止队列", "适合严格验收；批量生产时通常建议打开失败后继续下一款。"));
+  }
+
+  const blocking = items.filter((item) => item.tone === "bad").length;
+  const warnings = items.filter((item) => item.tone === "warn").length;
+  const tone = blocking ? "bad" : warnings ? "warn" : "good";
+  if (!items.length) {
+    items.push(preflightItem("good", "可以运行", "当前设置没有明显阻断项，可以先预演队列或直接运行。"));
+  }
+  const title = tone === "bad" ? "需要先处理" : tone === "warn" ? "可运行但建议复核" : "可以运行";
+  const chips = [
+    scope.label,
+    `${profileName || "自定义档位"}`,
+    strategyLabel,
+    estimate ? `约 ${formatDuration(estimate.totalMs)}` : "暂无耗时",
+  ];
+  const copyText = [
+    "AI 自动试玩运行前预检",
+    `状态：${title}`,
+    `范围：${scope.label}`,
+    `档位：${profileName || "自定义"}`,
+    `策略：${strategyLabel} (${strategy})`,
+    `预计基础耗时：${estimate ? formatDuration(estimate.totalMs) : "-"}`,
+    `AI 模式：${aiMode === "live" ? "Gemini" : "本地兜底"}`,
+    `飞书写入：${wantsFeishu ? "开启" : "关闭"}`,
+    ...items.map((item) => `- ${item.title}: ${item.detail}`),
+  ].join("\n");
+
+  return {
+    tone,
+    title,
+    summary: `${scope.label} · ${strategyLabel} · ${estimate ? `预计 ${formatDuration(estimate.totalMs)}` : "暂无耗时估算"}`,
+    chips,
+    items,
+    copyText,
+  };
+}
+
+function autoplayPreflightScope() {
+  const typedIds = selectedBatchGameIds();
+  if (typedIds.length) {
+    return { count: typedIds.length, label: `${typedIds.length} 款队列`, mode: "batch" };
+  }
+  const games = state.status?.games ?? [];
+  if (contextMode() === "queue") {
+    return { count: games.length, label: games.length ? `${games.length} 款全部样本` : "未导入游戏", mode: "batch_all" };
+  }
+  const game = selectedGame();
+  if (game) {
+    return { count: 1, label: game.game_name || game.game_id, mode: "single" };
+  }
+  return { count: games.length, label: games.length ? `${games.length} 款全部样本` : "未导入游戏", mode: "all" };
+}
+
+function preflightItem(tone, title, detail) {
+  return { tone, title, detail };
+}
+
+function autoplayPreflightMarkup(preflight, options = {}) {
+  const compact = Boolean(options.compact);
+  const copyable = options.copyable !== false;
+  const visibleItems = compact ? preflight.items.slice(0, 4) : preflight.items.slice(0, 6);
+  return `<section class="autoplay-preflight-card ${escapeAttr(preflight.tone)} ${compact ? "compact" : ""}">
+    <div class="preflight-head">
+      <div>
+        <span>运行前预检</span>
+        <b>${escapeHtml(preflight.title)}</b>
+        <p>${escapeHtml(preflight.summary)}</p>
+      </div>
+      ${copyable ? `<button class="button small" data-copy-autoplay-preflight type="button">复制摘要</button>` : ""}
+    </div>
+    <div class="preflight-chip-row">${preflight.chips.map((chip) => `<i>${escapeHtml(chip)}</i>`).join("")}</div>
+    <div class="preflight-rule-list">
+      ${visibleItems.map(preflightRuleMarkup).join("")}
+      ${preflight.items.length > visibleItems.length ? `<div class="preflight-more">还有 ${preflight.items.length - visibleItems.length} 条提示，可在任务队列里查看完整预检。</div>` : ""}
+    </div>
+  </section>`;
+}
+
+function preflightRuleMarkup(item) {
+  const symbol = item.tone === "bad" ? "!" : item.tone === "warn" ? "?" : "i";
+  return `<div class="preflight-rule ${escapeAttr(item.tone)}">
+    <i>${symbol}</i>
+    <div><b>${escapeHtml(item.title)}</b><span>${escapeHtml(item.detail)}</span></div>
+  </div>`;
 }
 
 function estimateAiSeconds(profile) {

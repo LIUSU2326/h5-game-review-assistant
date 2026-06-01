@@ -332,6 +332,7 @@ function playStrategyLabel(value) {
     passive: "只观察",
     legacy_center_tap: "安全点击",
     guided_probe: "引导探测",
+    adaptive_probe: "AI 预留探测",
   };
   return labels[String(value ?? "")] ?? (value || "-");
 }
