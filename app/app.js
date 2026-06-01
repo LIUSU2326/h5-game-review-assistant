@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.3.0";
+const APP_VERSION_LABEL = "v1.4 alpha.1";
 
 const state = {
   status: null,
@@ -1942,6 +1942,7 @@ function contextActionMarkup(action) {
 function contextFileActions(game) {
   return `${fileActionLink("报告", game.report_href, game.report_exists, "未生成报告")}
     ${fileActionLink("写入预览", game.payload_href, game.payload_exists, "未生成写入预览")}
+    <button class="button" data-export-evidence type="button">导出证据包</button>
     <button class="button" data-rerun="collect" type="button">重跑采集</button>
     <button class="button" data-rerun="ai" type="button">重跑 AI</button>
     <button class="button primary" data-rerun="feishu" type="button">重写飞书</button>`;
@@ -1995,6 +1996,7 @@ function bindContextPanelActions() {
   $$("[data-context-export-batch-report]").forEach((button) => {
     button.addEventListener("click", () => exportBatchReport(selectedBatchForDetail() ?? latestBatchRecord(state.status?.batch)));
   });
+  $("[data-export-evidence]")?.addEventListener("click", () => exportEvidencePackage(game?.game_id));
   $("#panelRunSelectedButton")?.addEventListener("click", runSelectedGame);
 }
 
@@ -2017,6 +2019,17 @@ async function saveReview(gameId) {
   const result = await fetchJson("/api/review", { method: "POST", body: JSON.stringify(payload) });
   appendConsole(`复核已保存：${gameId}；飞书同步：${reviewSyncText(result.review?.feishu_sync) || "未执行"}`);
   await refreshStatus();
+}
+
+async function exportEvidencePackage(gameId) {
+  if (!gameId) return;
+  const result = await fetchJson("/api/evidence-package", {
+    method: "POST",
+    body: JSON.stringify({ gameId }),
+  });
+  const sizeMb = result.size_bytes ? `${(result.size_bytes / 1024 / 1024).toFixed(2)} MB` : "未知大小";
+  appendConsole(`证据包已生成：${result.file_name}（${sizeMb}）`);
+  if (result.href) window.open(result.href, "_blank", "noopener,noreferrer");
 }
 
 function renderJobs() {

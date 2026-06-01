@@ -150,6 +150,12 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/evidence-package") {
+    const body = await readBody(request);
+    sendJson(response, 200, await createEvidencePackage(body));
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/open-data-folder") {
     openFolder(dataRoot);
     sendJson(response, 200, { status: "opening", data_root: dataRoot });
@@ -954,6 +960,79 @@ async function saveReview(body) {
   };
   await fs.writeFile(path.join(gameDir, "review_status.json"), `${JSON.stringify(review, null, 2)}\n`, "utf8");
   return { status: "saved", review };
+}
+
+async function createEvidencePackage(body) {
+  const gameId = String(body.gameId ?? body.game_id ?? "").trim();
+  if (!/^[a-z0-9][a-z0-9-]{0,80}$/i.test(gameId)) {
+    throw new Error("Invalid game id.");
+  }
+
+  const gameDir = path.join(dataRoot, "evidence", gameId);
+  const gameStat = await statOrNull(gameDir);
+  if (!gameStat?.isDirectory()) {
+    throw new Error(`Evidence folder not found for ${gameId}.`);
+  }
+
+  const outDir = path.join(dataRoot, "outputs", "evidence-packages");
+  await fs.mkdir(outDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z");
+  const zipName = `${gameId}-evidence-${stamp}.zip`;
+  const zipPath = path.join(outDir, zipName);
+
+  await compressEvidenceFolder(gameDir, zipPath);
+  const stat = await fs.stat(zipPath);
+  return {
+    status: "created",
+    game_id: gameId,
+    file_name: zipName,
+    size_bytes: stat.size,
+    href: `/outputs/evidence-packages/${encodeURIComponent(zipName)}`,
+    local_path: zipPath,
+    created_at: new Date().toISOString(),
+  };
+}
+
+async function compressEvidenceFolder(sourceDir, zipPath) {
+  const script = "Compress-Archive -LiteralPath $env:SOURCE_DIR -DestinationPath $env:ZIP_PATH -Force";
+  const result = await runProcess("powershell.exe", [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    script,
+  ], {
+    SOURCE_DIR: sourceDir,
+    ZIP_PATH: zipPath,
+  });
+  if (result.code !== 0) {
+    throw new Error(`Failed to export evidence package: ${result.stderr || result.stdout || `exit ${result.code}`}`);
+  }
+}
+
+function runProcess(command, args, extraEnv = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: dataRoot,
+      shell: false,
+      env: { ...process.env, ...extraEnv },
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      resolve({ code: 1, stdout, stderr: error?.message ?? String(error) });
+    });
+    child.on("close", (code) => {
+      resolve({ code: code ?? 0, stdout, stderr });
+    });
+  });
 }
 
 async function syncReviewToFeishu(gameId) {
