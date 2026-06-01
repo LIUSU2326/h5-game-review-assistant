@@ -55,6 +55,8 @@ npm run desktop
 npm run dist:win
 ```
 
+该命令会把 Electron 打包临时目录和下载缓存放在项目内的 `.build-temp/`、`.build-cache/`，避免反复打包占满 C 盘。请优先使用这个命令，不要直接运行裸 `electron-builder`。
+
 ## 配置
 
 复制示例配置后填写自己的密钥：

@@ -35,6 +35,7 @@
 - UI 可以触发快速检查、字段检查、标签库同步、批量计划刷新。
 - Electron 文件夹版可以启动桌面窗口并拉起内置本地服务。
 - 打包产物中未包含本机 `.env`、Gemini API Key、`config/feishu.local.json` 或 Feishu App Secret。
+- Windows 打包请使用 `npm run dist:win`。该命令会把 Electron 临时目录和构建缓存放到项目内的 `.build-temp/`、`.build-cache/`，成功后自动清理临时目录，避免反复打包占满 C 盘。
 - 桌面版已拆分程序目录和用户数据目录。打包后配置、样本、证据、日志会初始化到独立数据目录，而不是写进程序安装目录。
 - 打包后的用户数据目录会自动初始化 `config/run_profiles.json`，后续可在这个文件里调整试玩时长、AI 模式、截图数量和 trace 策略。
 - 当前 Windows 打包版默认数据目录示例：如果 exe 放在 E 盘，则使用 `E:\H5游戏评测助手数据`。工具顶部提供“打开数据目录”按钮。
