@@ -1,0 +1,49 @@
+Category,Option ID,Parent ID,Level,Name EN,Name ZH,Enabled,Description ZH,Source File
+gameplay_types,gt_action,,1,Action,动作,true,需要快速反应或连续操作的游戏,gameplay_types.csv
+gameplay_types,gt_puzzle,,1,Puzzle,益智,true,以思考、解谜、规则推理为核心,gameplay_types.csv
+gameplay_types,gt_casual,,1,Casual,休闲,true,轻量、低门槛、短局体验,gameplay_types.csv
+gameplay_types,gt_runner,gt_action,2,Runner,跑酷,true,角色持续前进并通过跳跃或滑动躲避障碍,gameplay_types.csv
+gameplay_types,gt_shooter,gt_action,2,Shooter,射击,true,以瞄准和攻击目标为核心,gameplay_types.csv
+gameplay_types,gt_match3,gt_puzzle,2,Match-3,三消,true,交换或点击元素形成消除,gameplay_types.csv
+gameplay_types,gt_merge,gt_puzzle,2,Merge,合成,true,合并相同或相近元素获得升级,gameplay_types.csv
+gameplay_types,gt_rescue_puzzle,gt_puzzle,2,Rescue Puzzle,救援解谜,true,通过操作机关或路线帮助角色脱困,gameplay_types.csv
+gameplay_types,gt_idle,gt_casual,2,Idle,放置,true,自动产出资源并通过升级推进,gameplay_types.csv
+gameplay_types,gt_simulation,,1,Simulation,模拟,true,模拟经营、建造、生活或职业活动,gameplay_types.csv
+themes,theme_farm,,,Farm,农场,true,农场、动物、作物、乡村场景,themes.csv
+themes,theme_animal,,,Animal,动物,true,以动物角色或动物救援为主题,themes.csv
+themes,theme_vehicle,,,Vehicle,车辆,true,汽车、卡车、飞机等交通工具,themes.csv
+themes,theme_food,,,Cooking/Food,烹饪美食,true,烹饪、餐厅、食材、美食制作,themes.csv
+themes,theme_magic,,,Magic/Fantasy,魔法奇幻,true,魔法、怪物、奇幻世界,themes.csv
+themes,theme_zombie,,,Zombie,僵尸,true,僵尸、生存、末日,themes.csv
+themes,theme_sports,,,Sports,体育,true,球类、竞速、运动竞技,themes.csv
+themes,theme_city,,,City,城市,true,城市生活、街区、建筑,themes.csv
+art_styles,art_2d_cartoon,,,2D Cartoon,2D卡通,true,平面卡通角色和场景,art_styles.csv
+art_styles,art_3d_cartoon,,,3D Cartoon,3D卡通,true,3D 角色但整体偏卡通,art_styles.csv
+art_styles,art_low_poly,,,Low Poly,低多边形,true,简化几何形体和低多边形建模,art_styles.csv
+art_styles,art_pixel,,,Pixel Art,像素风,true,像素化角色和场景,art_styles.csv
+art_styles,art_realistic,,,Realistic,写实,true,接近真实材质和比例,art_styles.csv
+art_styles,art_q版,,,Chibi/Q-style,Q版,true,头身比例夸张、可爱化角色,art_styles.csv
+art_styles,art_hand_drawn,,,Hand-drawn,手绘,true,手绘线条或插画质感,art_styles.csv
+feature_tags,tag_easy_to_play,,,Easy to Play,上手快,true,规则简单、无需长时间学习,feature_tags.csv
+feature_tags,tag_short_session,,,Short Session,短局,true,单局时间短,feature_tags.csv
+feature_tags,tag_brain_teaser,,,Brain Teaser,烧脑,true,需要推理或规划,feature_tags.csv
+feature_tags,tag_relaxing,,,Relaxing,解压,true,低压力、轻松体验,feature_tags.csv
+feature_tags,tag_level_based,,,Level-based,关卡制,true,以关卡推进为结构,feature_tags.csv
+feature_tags,tag_one_touch,,,One-touch,单指操作,true,主要依赖点击或单指滑动,feature_tags.csv
+feature_tags,tag_physics,,,Physics-based,物理机制,true,依赖重力、碰撞、机关等物理规则,feature_tags.csv
+feature_tags,tag_collecting,,,Collecting,收集,true,收集物品、角色或资源,feature_tags.csv
+feature_tags,tag_upgrade,,,Upgrade,升级,true,通过升级增强能力或解锁内容,feature_tags.csv
+feature_tags,tag_timer,,,Timed Challenge,限时挑战,true,存在倒计时或限时目标,feature_tags.csv
+audiences,aud_children,,,Children,儿童,true,适合低龄玩家，操作简单，内容轻松,audiences.csv
+audiences,aud_teens,,,Teens,青少年,true,适合青少年玩家，节奏较快或挑战适中,audiences.csv
+audiences,aud_adults,,,Adults,成年人,true,适合成年人，可能包含策略、经营或更复杂目标,audiences.csv
+audiences,aud_family,,,Family,家庭用户,true,适合亲子或家庭休闲,audiences.csv
+audiences,aud_casual_players,,,Casual Players,休闲玩家,true,适合碎片时间和轻度体验,audiences.csv
+audiences,aud_puzzle_lovers,,,Puzzle Lovers,解谜爱好者,true,适合喜欢思考和关卡挑战的玩家,audiences.csv
+controls,ctrl_tap,,,Tap,点击,true,点击按钮、角色或目标,controls.csv
+controls,ctrl_drag,,,Drag,拖拽,true,拖动物体、角色或道具,controls.csv
+controls,ctrl_swipe,,,Swipe,滑动,true,上下左右滑动进行操作,controls.csv
+controls,ctrl_hold,,,Press and Hold,长按,true,按住持续触发动作,controls.csv
+controls,ctrl_keyboard,,,Keyboard,键盘,true,使用键盘方向键或按键,controls.csv
+controls,ctrl_virtual_joystick,,,Virtual Joystick,虚拟摇杆,true,屏幕虚拟摇杆控制移动,controls.csv
+controls,ctrl_mouse,,,Mouse,鼠标,true,桌面端鼠标移动、点击或拖拽,controls.csv

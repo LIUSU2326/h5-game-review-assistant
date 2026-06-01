@@ -1,0 +1,23 @@
+﻿field_key,field_name_zh,field_name_en,field_type,uses_taxonomy,taxonomy_table,output_language,required
+device_fit,适配设备,Device Compatibility,text,false,,zh_and_en,true
+audience,适合人群,Target Audience,multi_select,true,audiences,zh_and_en,true
+game_mode,游戏模式,Game Mode,text,false,,zh_and_en,true
+game_type,游戏类型,Game Type,single_select,true,gameplay_types,zh_and_en,true
+sub_type,细分类型,Subgenre,single_select,true,gameplay_types,zh_and_en,true
+theme,游戏题材,Theme,multi_select,true,themes,zh_and_en,true
+art_style,画风,Art Style,single_select,true,art_styles,zh_and_en,true
+feature_tags,特色标签,Feature Tags,multi_select,true,feature_tags,zh_and_en,true
+package_size_mb,包体大小(M),Package Size (MB),number,false,,en,true
+weak_network_load_seconds,弱网加载时长,Slow 4G Load Time,number,false,,en,true
+orientation,横版/竖版,Orientation,single_select,false,,zh_and_en,true
+tutorial,新手引导,Tutorial,text,false,,zh_and_en,true
+bgm,BGM,BGM,single_select,false,,zh_and_en,false
+responsive,自适配,Responsive Layout,text,false,,zh_and_en,true
+page_title,页面标题,Page Title,text,false,,en,true
+meta_description,元描述,Meta Description,text,false,,en,true
+keywords,核心标签/关键词,Tags/Keywords,multi_text,false,,en,true
+product_intro,产品整体介绍（150单词版）,Product Overview (150 words),long_text,false,,en,true
+features,特点介绍,Features,long_text,false,,en,true
+how_to_play,如何玩,How To Play,long_text,false,,en,true
+controls,操作说明,Controls,multi_select,true,controls,en,true
+faq,常见问题,FAQ,long_text,false,,en,true

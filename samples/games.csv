@@ -1,0 +1,5 @@
+﻿game_id,game_name,url,status,notes
+cow-saver,Cow Saver,https://go.minigame.group/game/cow-saver/play,poc_sample,POC first sample game
+pixel-match,Pixel Match,https://go.minigame.group/game/pixel-match/play,batch_sample,User provided batch validation sample
+dead-rush,Dead Rush,https://go.minigame.group/game/dead-rush/play,batch_sample,User provided batch validation sample
+idle-prison-life,Idle Prison Life,https://go.minigame.group/game/idle-prison-life/play,batch_sample,User provided batch validation sample

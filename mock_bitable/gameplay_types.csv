@@ -1,0 +1,11 @@
+﻿id,level,parent_id,name_en,name_zh,enabled,description_zh
+gt_action,1,,Action,动作,true,需要快速反应或连续操作的游戏
+gt_puzzle,1,,Puzzle,益智,true,以思考、解谜、规则推理为核心
+gt_casual,1,,Casual,休闲,true,轻量、低门槛、短局体验
+gt_runner,2,gt_action,Runner,跑酷,true,角色持续前进并通过跳跃或滑动躲避障碍
+gt_shooter,2,gt_action,Shooter,射击,true,以瞄准和攻击目标为核心
+gt_match3,2,gt_puzzle,Match-3,三消,true,交换或点击元素形成消除
+gt_merge,2,gt_puzzle,Merge,合成,true,合并相同或相近元素获得升级
+gt_rescue_puzzle,2,gt_puzzle,Rescue Puzzle,救援解谜,true,通过操作机关或路线帮助角色脱困
+gt_idle,2,gt_casual,Idle,放置,true,自动产出资源并通过升级推进
+gt_simulation,1,,Simulation,模拟,true,模拟经营、建造、生活或职业活动

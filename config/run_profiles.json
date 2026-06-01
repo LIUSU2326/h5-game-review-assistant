@@ -1,0 +1,46 @@
+{
+  "profiles": {
+    "poc_smoke": {
+      "play_seconds": 5,
+      "description": "Very short run to validate the pipeline and evidence folder.",
+      "ai_mode": "local_fallback",
+      "ai_eval_mode": "low",
+      "max_images": 2,
+      "trace": "off",
+      "play_strategy": "legacy_center_tap",
+      "task_retries": 0,
+      "record_video": false,
+      "video_seconds": 0,
+      "devices": ["desktop-normal", "mobile-portrait-normal", "mobile-landscape-normal", "desktop-slow4g"]
+    },
+    "poc_review": {
+      "play_seconds": 60,
+      "description": "Short review run for one game before 30-minute evaluation.",
+      "ai_mode": "gemini_or_local_fallback",
+      "ai_eval_mode": "low",
+      "max_images": 2,
+      "trace": "off",
+      "play_strategy": "guided_probe",
+      "task_retries": 1,
+      "record_video": true,
+      "video_seconds": 15,
+      "devices": ["desktop-normal", "mobile-portrait-normal", "mobile-landscape-normal", "desktop-slow4g"]
+    },
+    "full_30min": {
+      "play_seconds": 450,
+      "total_play_seconds": 1800,
+      "description": "Formal 30-minute total gameplay sampling across device/network profiles.",
+      "ai_mode": "gemini_standard",
+      "ai_eval_mode": "standard",
+      "max_images": 6,
+      "trace": "minimal",
+      "play_strategy": "guided_probe",
+      "fail_on_partial": true,
+      "task_retries": 0,
+      "record_video": true,
+      "video_seconds": 30,
+      "devices": ["desktop-normal", "mobile-portrait-normal", "mobile-landscape-normal", "desktop-slow4g"]
+    }
+  },
+  "default_profile": "poc_review"
+}

@@ -1,0 +1,7 @@
+﻿id,name_en,name_zh,enabled,description_zh
+aud_children,Children,儿童,true,适合低龄玩家，操作简单，内容轻松
+aud_teens,Teens,青少年,true,适合青少年玩家，节奏较快或挑战适中
+aud_adults,Adults,成年人,true,适合成年人，可能包含策略、经营或更复杂目标
+aud_family,Family,家庭用户,true,适合亲子或家庭休闲
+aud_casual_players,Casual Players,休闲玩家,true,适合碎片时间和轻度体验
+aud_puzzle_lovers,Puzzle Lovers,解谜爱好者,true,适合喜欢思考和关卡挑战的玩家

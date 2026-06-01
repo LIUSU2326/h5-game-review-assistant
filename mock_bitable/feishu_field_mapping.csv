@@ -1,0 +1,37 @@
+field_name,source_path,feishu_type,required,notes
+Game ID,game.game_id,text,true,Internal stable id
+Game Name,game.game_name,text,true,Display name
+Game URL,game.url,url,true,Original H5 link
+Status,collection.status,single_select,true,Collected/Failed/Needs Review
+Evaluation Source,ai.evaluation_source,single_select,true,gemini/local_fallback/manual
+Page Title,collection.page_title,text,true,HTML title
+Meta Description,collection.meta_description,text,false,HTML meta description
+Keywords,collection.keywords,text,false,HTML keywords
+Device Compatibility,ai.en.device_compatibility,text,true,English export field
+Target Audience,ai.en.target_audience,multi_select,true,From taxonomy
+Game Mode,ai.en.game_mode,text,true,English export field
+Game Type,ai.en.game_type,single_select,true,From taxonomy
+Subgenre,ai.en.subgenre,single_select,true,From taxonomy
+Theme,ai.en.theme,multi_select,true,From taxonomy
+Art Style,ai.en.art_style,single_select,true,From taxonomy
+Feature Tags,ai.en.feature_tags,multi_select,true,From taxonomy
+Package Size MB,collection.package_size_estimate_mb.content_length_mb,number,true,Header-based estimate
+Slow 4G Load Time MS,collection.slow_4g_load_ms.domcontentloaded_ms,number,true,DOMContentLoaded timing
+Orientation,ai.en.orientation,single_select,true,Portrait/landscape/adaptive
+Tutorial,ai.en.tutorial,text,true,English export field
+BGM,ai.en.bgm,single_select,false,unknown if not captured
+Responsive Layout,ai.en.responsive_layout,text,true,English export field
+Controls,ai.en.controls,multi_select,true,From taxonomy
+Product Overview,ai.en.product_overview_150_words,long_text,true,English 150-word copy
+Features,ai.en.features,long_text,true,3-6 feature bullets
+How To Play,ai.en.how_to_play,long_text,true,English instructions
+FAQ,ai.en.faq,long_text,true,English FAQ
+Needs Taxonomy Review,derived.needs_taxonomy_review,checkbox,true,True if any new suggestions exist
+Taxonomy Suggestions,ai.en.taxonomy_new_suggestions,long_text,false,Pending taxonomy additions
+Review Status,review.status_label_en,single_select,false,Human review workflow status
+Review Notes,review.notes,long_text,false,Human review notes
+Review Updated At,review.updated_at,text,false,Human review save timestamp
+Evidence Folder,derived.evidence_folder,text,true,Local evidence folder path
+Screenshots,derived.screenshot_paths,long_text,true,Local screenshot paths
+Screenshot Attachments,derived.screenshot_uploads,attachment,false,Optional Feishu-uploaded screenshots
+Trace Files,derived.trace_paths,long_text,false,Local trace paths

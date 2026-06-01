@@ -1,0 +1,11 @@
+﻿id,name_en,name_zh,enabled,description_zh
+tag_easy_to_play,Easy to Play,上手快,true,规则简单、无需长时间学习
+tag_short_session,Short Session,短局,true,单局时间短
+tag_brain_teaser,Brain Teaser,烧脑,true,需要推理或规划
+tag_relaxing,Relaxing,解压,true,低压力、轻松体验
+tag_level_based,Level-based,关卡制,true,以关卡推进为结构
+tag_one_touch,One-touch,单指操作,true,主要依赖点击或单指滑动
+tag_physics,Physics-based,物理机制,true,依赖重力、碰撞、机关等物理规则
+tag_collecting,Collecting,收集,true,收集物品、角色或资源
+tag_upgrade,Upgrade,升级,true,通过升级增强能力或解锁内容
+tag_timer,Timed Challenge,限时挑战,true,存在倒计时或限时目标

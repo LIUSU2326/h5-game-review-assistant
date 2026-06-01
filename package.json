@@ -1,0 +1,75 @@
+{
+  "name": "h5-game-eval-poc",
+  "version": "1.3.0-alpha.7",
+  "description": "Local H5 game evaluation assistant with browser evidence, Gemini review, and Feishu Bitable export.",
+  "author": "Local POC",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "poc:mock": "node tools/run_local_mock_poc.mjs",
+    "poc:playwright": "node tools/run_playwright_poc.mjs",
+    "poc:ai": "node tools/run_ai_eval.mjs",
+    "poc:ai:local": "node tools/run_ai_eval.mjs --local-fallback",
+    "poc:ai:test": "node tools/test_gemini_connection.mjs",
+    "poc:report": "node tools/build_local_report.mjs",
+    "poc:workbench": "node tools/build_poc_workbench.mjs",
+    "poc:feishu:preview": "node tools/build_feishu_payload_preview.mjs",
+    "poc:feishu:check": "node tools/check_feishu_config.mjs",
+    "poc:feishu:parse-url": "node tools/parse_feishu_bitable_url.mjs",
+    "poc:feishu:resolve-wiki": "node tools/resolve_feishu_wiki_bitable_token.mjs",
+    "poc:feishu:fields": "node tools/check_feishu_table_fields.mjs",
+    "poc:feishu:create-fields": "node tools/create_feishu_fields.mjs",
+    "poc:feishu:write": "node tools/write_feishu_record.mjs",
+    "poc:taxonomy:seed": "node tools/build_taxonomy_seed.mjs",
+    "poc:taxonomy:sync": "node tools/sync_taxonomy_from_feishu.mjs",
+    "poc:taxonomy:setup-feishu": "node tools/setup_feishu_taxonomy_table.mjs",
+    "poc:pipeline": "node tools/run_game_pipeline.mjs",
+    "poc:batch:plan": "node tools/build_batch_manifest.mjs",
+    "poc:batch:run": "node tools/run_batch_pipeline.mjs",
+    "poc:workbench:preview": "node tools/render_workbench_preview.mjs",
+    "app": "node tools/app_server.mjs",
+    "app:check": "node tools/run_quick_checks.mjs",
+    "desktop": "electron desktop/main.mjs",
+    "dist:win": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "local.h5-game-eval-assistant",
+    "productName": "H5游戏评测助手",
+    "asar": false,
+    "files": [
+      "app/**/*",
+      "desktop/**/*",
+      "tools/**/*",
+      "mock_bitable/**/*",
+      "samples/**/*",
+      "config/feishu.local.template.json",
+      "config/feishu.example.json",
+      "config/run_profiles.json",
+      "config/feishu_onboarding_checklist.json",
+      ".env.example",
+      "docs/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "desktop/main.mjs"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "desktop/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        "portable"
+      ]
+    }
+  },
+  "dependencies": {
+    "playwright-core": "^1.54.0",
+    "undici": "^8.3.0"
+  },
+  "devDependencies": {
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1"
+  }
+}

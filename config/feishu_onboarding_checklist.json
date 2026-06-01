@@ -1,0 +1,71 @@
+{
+  "title": "Feishu Bitable Integration Checklist",
+  "steps": [
+    {
+      "id": "create_app",
+      "label_zh": "创建飞书自建应用",
+      "status": "manual",
+      "guide": "飞书开放平台 → 开发者后台 → 创建企业自建应用"
+    },
+    {
+      "id": "credentials",
+      "label_zh": "获取 App ID 和 App Secret",
+      "status": "manual_secret",
+      "guide": "左侧 → 凭证与基础信息。App Secret 不要发到聊天里。"
+    },
+    {
+      "id": "permissions",
+      "label_zh": "开通多维表格权限",
+      "status": "manual",
+      "guide": "左侧 → 权限管理 → 搜索多维表格 → 开通查看、评论、编辑和管理多维表格。"
+    },
+    {
+      "id": "wiki_permission",
+      "label_zh": "如果使用 wiki 链接，开通 Wiki 节点读取权限",
+      "status": "manual_conditional",
+      "guide": "左侧 → 权限管理 → 搜索 wiki 或知识库 → 开通 wiki:node:read；如果没有该项，可开通 wiki:wiki:readonly。"
+    },
+    {
+      "id": "publish",
+      "label_zh": "发布应用版本",
+      "status": "manual",
+      "guide": "左侧 → 版本管理与发布 → 创建版本 → 发布。"
+    },
+    {
+      "id": "add_doc_app",
+      "label_zh": "添加文档应用到多维表格",
+      "status": "manual",
+      "guide": "多维表格右上角 → ... → 添加文档应用 → 搜索应用 → 设置为可编辑。"
+    },
+    {
+      "id": "parse_url",
+      "label_zh": "解析多维表格 URL",
+      "status": "tool",
+      "command": "npm.cmd run poc:feishu:parse-url -- --url \"你的多维表格URL\""
+    },
+    {
+      "id": "fill_config",
+      "label_zh": "填写 feishu.local.json",
+      "status": "manual_secret",
+      "guide": "复制 config/feishu.local.template.json 为 config/feishu.local.json 并填写 App ID、App Secret、app_token、table_id。"
+    },
+    {
+      "id": "resolve_wiki",
+      "label_zh": "如果是 wiki 链接，解析 app_token",
+      "status": "tool_optional",
+      "command": "npm.cmd run poc:feishu:resolve-wiki"
+    },
+    {
+      "id": "check_config",
+      "label_zh": "检查飞书配置",
+      "status": "tool",
+      "command": "npm.cmd run poc:feishu:check"
+    },
+    {
+      "id": "preview_payload",
+      "label_zh": "生成写入预览",
+      "status": "tool",
+      "command": "npm.cmd run poc:feishu:preview"
+    }
+  ]
+}

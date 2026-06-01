@@ -1,0 +1,47 @@
+{
+  "enabled": false,
+  "app_id": "cli_xxxxxxxxxxxxx",
+  "app_secret": "replace_with_feishu_app_secret",
+  "bitable": {
+    "app_token": "bascnxxxxxxxxxxxxx",
+    "upload_screenshots": false,
+    "tables": {
+      "evaluation_results": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": "",
+        "field_mapping_file": "mock_bitable/feishu_field_mapping.csv"
+      },
+      "taxonomy_suggestions": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": ""
+      },
+      "taxonomy_options": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": "",
+        "seed_file": "mock_bitable/taxonomy_options_seed.csv"
+      },
+      "gameplay_types": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": ""
+      },
+      "themes": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": ""
+      },
+      "art_styles": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": ""
+      },
+      "feature_tags": {
+        "table_id": "tblxxxxxxxxxxxxx",
+        "view_id": ""
+      }
+    }
+  },
+  "write_mode": "preview",
+  "notes": [
+    "Copy this file to config/feishu.local.json and fill real values.",
+    "config/feishu.local.json is ignored by git.",
+    "Do not paste app_secret into chat."
+  ]
+}

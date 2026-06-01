@@ -1,0 +1,8 @@
+﻿id,name_en,name_zh,enabled,description_zh
+ctrl_tap,Tap,点击,true,点击按钮、角色或目标
+ctrl_drag,Drag,拖拽,true,拖动物体、角色或道具
+ctrl_swipe,Swipe,滑动,true,上下左右滑动进行操作
+ctrl_hold,Press and Hold,长按,true,按住持续触发动作
+ctrl_keyboard,Keyboard,键盘,true,使用键盘方向键或按键
+ctrl_virtual_joystick,Virtual Joystick,虚拟摇杆,true,屏幕虚拟摇杆控制移动
+ctrl_mouse,Mouse,鼠标,true,桌面端鼠标移动、点击或拖拽

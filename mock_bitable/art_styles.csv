@@ -1,0 +1,8 @@
+﻿id,name_en,name_zh,enabled,description_zh
+art_2d_cartoon,2D Cartoon,2D卡通,true,平面卡通角色和场景
+art_3d_cartoon,3D Cartoon,3D卡通,true,3D 角色但整体偏卡通
+art_low_poly,Low Poly,低多边形,true,简化几何形体和低多边形建模
+art_pixel,Pixel Art,像素风,true,像素化角色和场景
+art_realistic,Realistic,写实,true,接近真实材质和比例
+art_q版,Chibi/Q-style,Q版,true,头身比例夸张、可爱化角色
+art_hand_drawn,Hand-drawn,手绘,true,手绘线条或插画质感

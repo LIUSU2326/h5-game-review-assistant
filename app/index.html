@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H5 游戏评测助手</title>
+  <link rel="stylesheet" href="/app/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <strong>H5</strong>
+        <span>评测工作台</span>
+        <small>v1.3 A7</small>
+      </div>
+
+      <nav class="rail-nav" aria-label="主导航">
+        <button class="rail-item active" data-view="workbench" data-workbench-mode="workbench" data-jump="overview" type="button">
+          <span>工作台</span><small>01</small>
+        </button>
+        <button class="rail-item" data-view="workbench" data-workbench-mode="queue" data-jump="results" type="button">
+          <span>任务队列</span><small id="navJobState">02</small>
+        </button>
+        <button class="rail-item" data-view="workbench" data-workbench-mode="library" data-jump="results" type="button">
+          <span>游戏库</span><small id="navGameCount">03</small>
+        </button>
+        <button class="rail-item" data-view="workbench" data-workbench-mode="review" data-jump="results" type="button">
+          <span>证据复核</span><small>04</small>
+        </button>
+        <button class="rail-item" data-view="config" data-jump="config" type="button">
+          <span>配置中心</span><small id="navConfigState">05</small>
+        </button>
+        <button class="rail-item" data-view="guide" data-jump="guide" type="button">
+          <span>飞书向导</span><small>06</small>
+        </button>
+      </nav>
+
+      <div class="rail-card">
+        <b>飞书</b>
+        <span id="writtenCount">字段待检查 · 截图本地</span>
+        <div class="meter" aria-hidden="true"><i id="setupMeter"></i></div>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <div class="command">
+        <i aria-hidden="true"></i>
+        <b id="pipelineState">正式 30 分钟 / 4 档设备 / Gemini / 写入飞书</b>
+        <span id="pipelineNote">E:\H5游戏评测助手数据</span>
+      </div>
+      <div class="top-actions">
+        <button class="button" id="openDataFolderButton" type="button">打开目录</button>
+        <button class="button" id="quickCheckButton" type="button">快速检查</button>
+        <button class="button primary" id="runSelectedButton" type="button">开始运行</button>
+        <button class="visually-hidden" id="refreshButton" type="button">刷新</button>
+      </div>
+    </header>
+
+    <main class="main" id="mainWorkspace">
+      <section class="workspace-view active" data-view="workbench" data-mode="workbench" id="workbench">
+        <section class="top-grid" id="overview">
+          <div class="hero">
+            <h1>批量<br>评测台</h1>
+            <div class="hero-actions">
+              <textarea class="url-box" id="urlInput" rows="1" placeholder="https://go.minigame.group/game/.../play"></textarea>
+              <button class="button orange" id="importUrlsButton" type="button">导入 H5 链接</button>
+              <button class="button" id="batchDryRunButton" type="button">预演队列</button>
+            </div>
+            <div class="metrics">
+              <div class="metric hot"><span>队列</span><b id="sampleCount">0 款</b></div>
+              <div class="metric"><span>截图</span><b id="metricShots">0</b></div>
+              <div class="metric"><span>视频</span><b id="metricVideos">0</b></div>
+              <div class="metric"><span>提示</span><b id="metricFlags">0</b></div>
+            </div>
+          </div>
+
+          <div class="pipeline-panel">
+            <h2>实时流程</h2>
+            <div class="live-dot"></div>
+            <div class="orbit-node import"><b>导入</b><small>4 条链接</small></div>
+            <div class="orbit-node play"><b>浏览器采集</b><small>Playwright · 慢 4G</small></div>
+            <div class="orbit-node ai"><b id="geminiState">Gemini</b><small id="geminiModel">标签匹配</small></div>
+            <div class="readout"><span>当前运行</span><strong>30m</strong></div>
+            <div class="visually-hidden"><span id="feishuState">-</span><span id="feishuTable">-</span></div>
+          </div>
+        </section>
+
+        <section class="workspace" id="results">
+          <div class="queue-panel">
+            <div class="section-head">
+              <h2>评测队列</h2>
+              <div class="segmented" id="resultOverview"></div>
+            </div>
+            <div class="game-table-wrap">
+              <table class="game-table">
+                <thead>
+                  <tr>
+                    <th>游戏</th>
+                    <th>采集</th>
+                    <th>AI</th>
+                    <th>飞书</th>
+                    <th>质量</th>
+                    <th>复核</th>
+                  </tr>
+                </thead>
+                <tbody id="gameTableBody"></tbody>
+              </table>
+            </div>
+            <div class="table-status" id="tableStatus"></div>
+            <div class="batch-history-panel" id="batchHistoryPanel" aria-label="批次历史"></div>
+          </div>
+
+          <aside class="side-stack">
+            <div class="modules">
+              <button class="module active" data-view="workbench" data-workbench-mode="workbench" data-jump="overview" type="button"><i>1</i><b>工作台</b><span>当前</span></button>
+              <button class="module" data-view="workbench" data-workbench-mode="queue" data-jump="results" type="button"><i>2</i><b>任务队列</b><span>可重试</span></button>
+              <button class="module" data-view="workbench" data-workbench-mode="review" data-jump="results" type="button"><i>3</i><b>证据复核</b><span id="metricFlagsSmall">0 提示</span></button>
+              <button class="module" data-view="config" data-jump="config" type="button"><i>4</i><b>配置中心</b><span>就绪</span></button>
+              <button class="module" data-view="guide" data-jump="guide" type="button"><i>5</i><b>飞书向导</b><span>内置</span></button>
+            </div>
+            <div class="side-console">
+              <h3>任务日志</h3>
+              <pre id="sideJobOutput">等待任务输出...</pre>
+            </div>
+          </aside>
+
+          <div class="batch-tools" aria-label="批量队列工具">
+            <label>
+              <span>队列游戏 ID</span>
+              <textarea id="batchGameIds" rows="4" placeholder="每行一个 game_id，留空时使用全部样本"></textarea>
+            </label>
+            <div class="button-row">
+              <button class="button" id="fillBatchAllButton" type="button">全部</button>
+              <button class="button" id="fillBatchSelectedButton" type="button">当前</button>
+              <button class="button" id="fillBatchFailedButton" type="button">失败项</button>
+              <button class="button" id="fillBatchResumeButton" type="button">未完成项</button>
+              <button class="button" id="batchDryRunPanelButton" type="button">预演</button>
+              <button class="button primary" id="batchRunButton" type="button">运行</button>
+            </div>
+            <label class="checkline">
+              <input id="batchContinueOnError" type="checkbox" checked>
+              <span>单款失败后继续下一款</span>
+            </label>
+            <div class="batch-summary" id="batchSummary">暂无批量任务。</div>
+          </div>
+
+          <section class="control-strip" id="runner">
+            <div class="run-options">
+              <label>
+                <span>选择游戏</span>
+                <select id="gameSelect"></select>
+              </label>
+              <label>
+                <span>运行档位</span>
+                <select id="runProfile"></select>
+              </label>
+              <label>
+                <span>试玩秒数</span>
+                <input id="playSeconds" type="number" min="30" step="30" value="60">
+              </label>
+              <label>
+                <span>AI 模式</span>
+                <select id="aiMode">
+                  <option value="live">Gemini</option>
+                  <option value="local">本地兜底</option>
+                </select>
+              </label>
+              <label>
+                <span>自动试玩</span>
+                <select id="playStrategy">
+                  <option value="guided_probe">引导探测</option>
+                  <option value="legacy_center_tap">安全点击</option>
+                  <option value="passive">只观察</option>
+                </select>
+              </label>
+            </div>
+            <div class="profile-note" id="runProfileNote">选择档位后会自动带入试玩时长和 AI 模式。</div>
+            <div class="toggle-row">
+              <label class="checkline"><input id="writeFeishu" type="checkbox" checked><span>写入飞书</span></label>
+              <label class="checkline"><input id="forceCollect" type="checkbox"><span>重新采集证据</span></label>
+              <label class="checkline"><input id="forceAi" type="checkbox" checked><span>重新生成 AI 评测</span></label>
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-view="config" id="config">
+        <section class="config-board">
+          <div class="config-lead">
+            <span>配置</span>
+            <h1>配置中心</h1>
+            <p>密钥只在本机保存，留空保存会保留原值。</p>
+            <button class="button primary" id="saveConfigButton" type="button">保存配置</button>
+          </div>
+
+          <div class="setup-guide" id="setupGuide">
+            <div class="setup-progress">
+              <div>
+                <div class="form-title">首次配置进度</div>
+                <p>按顺序完成模型、飞书、字段、标签库和队列预演。</p>
+              </div>
+              <div class="setup-score" id="setupProgressText">读取中</div>
+            </div>
+            <ol class="setup-steps" id="setupSteps"></ol>
+          </div>
+
+          <div class="storage-guide" id="storageGuide">
+            <div class="storage-fact"><span>数据目录</span><strong id="storageRootText">正在读取</strong></div>
+            <div class="storage-fact"><span>游戏文件夹</span><strong id="storageEvidenceText">evidence/&lt;game_id&gt;/</strong></div>
+            <div class="storage-fact"><span>截图策略</span><strong id="storageScreenshotText">本地保存</strong></div>
+          </div>
+
+          <section class="config-workbench" id="configWorkbench" aria-label="字段与标签库配置总览">
+            <div class="config-empty">字段配置读取中。</div>
+          </section>
+
+          <div class="config-grid">
+            <form class="form-block" id="geminiForm">
+              <div class="form-title">Gemini</div>
+              <label><span>API Key</span><input name="apiKey" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+              <label>
+                <span>模型</span>
+                <select name="model">
+                  <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                  <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                </select>
+              </label>
+              <label><span>代理</span><input name="proxy" type="text" placeholder="http://127.0.0.1:10808"></label>
+              <button class="button" data-job="gemini-test" type="button">测试 Gemini</button>
+            </form>
+
+            <form class="form-block" id="feishuForm">
+              <div class="form-title">飞书</div>
+              <label><span>App ID</span><input name="appId" type="text" autocomplete="off" placeholder="cli_xxx"></label>
+              <label><span>App Secret</span><input name="appSecret" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+              <label class="wide"><span>多维表格 URL</span><input name="bitableUrl" type="text" placeholder="https://my.feishu.cn/wiki/...?..."></label>
+              <div class="inline-fields">
+                <label><span>app_token</span><input name="appToken" type="text" placeholder="wiki 链接可留空后解析"></label>
+                <label><span>table_id</span><input name="tableId" type="text" placeholder="tbl..."></label>
+              </div>
+              <label class="checkline wide"><input name="uploadScreenshots" type="checkbox"><span>写入飞书时上传截图附件</span></label>
+              <div class="button-row">
+                <button class="button" data-job="feishu-check" type="button">检查配置</button>
+                <button class="button" data-job="feishu-fields" type="button">检查字段</button>
+                <button class="button" data-job="taxonomy-sync" type="button">同步标签库</button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-view="guide" id="guide">
+        <section class="guide-board">
+          <div class="config-lead">
+            <span>飞书</span>
+            <h1>飞书接入向导</h1>
+            <p>给非技术使用者看的最短路径，后续会放进 exe 首次启动页。</p>
+          </div>
+          <div class="guide-content">
+            <div class="guide-visual"><img src="/app/assets/feishu-guide-flow.svg" alt="飞书多维表格接入流程图"></div>
+            <ol class="guide-list">
+              <li><div><strong>创建企业自建应用</strong><span>名称建议用“H5游戏评测助手”。</span></div></li>
+              <li><div><strong>复制 App ID / App Secret</strong><span>Secret 只填在本工具里，不发聊天。</span></div></li>
+              <li><div><strong>开通多维表格权限</strong><span>至少需要查看、编辑和管理多维表格。</span></div></li>
+              <li><div><strong>Wiki 链接额外开权限</strong><span>知识库多维表格需要 wiki:node:read 或等价权限。</span></div></li>
+              <li><div><strong>发布应用版本</strong><span>个人测试也需要发布，权限才生效。</span></div></li>
+              <li><div><strong>添加文档应用</strong><span>在多维表格右上角文档应用里添加，并设为可编辑。</span></div></li>
+            </ol>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <aside class="proof-dock context-panel" id="proofDock" aria-label="上下文面板">
+      <div class="result-detail" id="detailPanel">
+        <div class="empty-state">选择一款游戏查看证据和字段。</div>
+      </div>
+    </aside>
+
+    <section class="job-console" aria-live="polite">
+      <div>
+        <b>运行日志</b>
+        <span id="jobSummary">暂无任务</span>
+      </div>
+      <pre id="jobOutput">等待任务输出...</pre>
+      <div class="job-console-actions">
+        <button class="button danger" id="cancelJobButton" type="button" hidden>取消任务</button>
+        <button class="button" id="toggleConsoleButton" type="button">展开日志</button>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="/app/app.js"></script>
+</body>
+</html>

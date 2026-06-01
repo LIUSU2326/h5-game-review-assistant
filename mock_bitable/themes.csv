@@ -1,0 +1,9 @@
+﻿id,name_en,name_zh,enabled,description_zh
+theme_farm,Farm,农场,true,农场、动物、作物、乡村场景
+theme_animal,Animal,动物,true,以动物角色或动物救援为主题
+theme_vehicle,Vehicle,车辆,true,汽车、卡车、飞机等交通工具
+theme_food,Cooking/Food,烹饪美食,true,烹饪、餐厅、食材、美食制作
+theme_magic,Magic/Fantasy,魔法奇幻,true,魔法、怪物、奇幻世界
+theme_zombie,Zombie,僵尸,true,僵尸、生存、末日
+theme_sports,Sports,体育,true,球类、竞速、运动竞技
+theme_city,City,城市,true,城市生活、街区、建筑

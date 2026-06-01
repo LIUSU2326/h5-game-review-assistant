@@ -1,0 +1,26 @@
+﻿{
+    "enabled":  true,
+    "app_id":  "你的 App ID",
+    "app_secret":  "你的 App Secret",
+    "bitable":  {
+                    "app_token":  "从多维表格 URL /base/ 后面解析；wiki 链接可先留空",
+                    "upload_screenshots":  false,
+                    "tables":  {
+                                   "evaluation_results":  {
+                                                              "table_id":  "从多维表格 URL ?table= 后面解析",
+                                                              "view_id":  "",
+                                                              "field_mapping_file":  "mock_bitable/feishu_field_mapping.csv"
+                                                          },
+                                   "taxonomy_suggestions":  {
+                                                                "table_id":  "后续可新建待审核标签表再填写",
+                                                                "view_id":  ""
+                                                            },
+                                   "taxonomy_options":  {
+                                                            "table_id":  "后续可新建标签库表再填写",
+                                                            "view_id":  "",
+                                                            "seed_file":  "mock_bitable/taxonomy_options_seed.csv"
+                                                            }
+                               }
+                },
+    "write_mode":  "preview"
+}
