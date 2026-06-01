@@ -322,9 +322,11 @@ function taxonomySuggestions(items) {
 function autoplaySummary(autoplay) {
   const runs = Array.isArray(autoplay?.runs) ? autoplay.runs : [];
   if (!runs.length) return "<p>暂无自动试玩动作记录。</p>";
+  const actionCount = runs.reduce((sum, run) => sum + Number(run.action_count ?? 0), 0);
+  const strategies = [...new Set(runs.map((run) => playStrategyLabel(run.strategy)).filter(Boolean))].join(" / ");
   return `<ul>${runs
     .map((run) => `<li><strong>${escapeHtml(run.label || run.id)}</strong>: ${escapeHtml(playStrategyLabel(run.strategy))} · ${escapeHtml(run.action_count ?? 0)} 次动作</li>`)
-    .join("")}</ul>`;
+    .join("")}</ul><p>自动试玩复盘：${escapeHtml(strategies || "-")}，共 ${escapeHtml(actionCount)} 次动作。动作轨迹仅作为字段生成和人工复核参考。</p>`;
 }
 
 function playStrategyLabel(value) {

@@ -19,7 +19,7 @@
 
 如果想预览正在开发的 AI 自动试玩增强版，可以下载：
 
-- [H5游戏评测助手-v1.6.0-alpha.2.zip](downloads/H5游戏评测助手-v1.6.0-alpha.2.zip)
+- [H5游戏评测助手-v1.6.0-alpha.3.zip](downloads/H5游戏评测助手-v1.6.0-alpha.3.zip)
 
 下载后解压，运行里面的 `H5游戏评测助手.exe`。首次使用仍需要在工具里填写 Gemini API Key 和飞书多维表格配置。
 

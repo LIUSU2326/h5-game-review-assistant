@@ -1600,6 +1600,53 @@ body.lightbox-open {
   gap: 10px;
 }
 
+.autoplay-review-card {
+  border-color: var(--hairline);
+  background: var(--surface);
+}
+
+.autoplay-review-card.good {
+  border-color: color-mix(in oklch, var(--green) 34%, var(--hairline));
+  background: color-mix(in oklch, var(--green-soft) 30%, var(--surface));
+}
+
+.autoplay-review-card.warn {
+  border-color: color-mix(in oklch, var(--gold) 48%, var(--hairline));
+  background: color-mix(in oklch, var(--gold-soft) 42%, var(--surface));
+}
+
+.autoplay-review-card.bad {
+  border-color: color-mix(in oklch, var(--red) 45%, var(--hairline));
+  background: color-mix(in oklch, var(--red-soft) 40%, var(--surface));
+}
+
+.autoplay-review-card.compact .context-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.autoplay-recommendation {
+  border: 1px solid color-mix(in oklch, var(--hairline) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--surface) 78%, transparent);
+  padding: 10px 11px;
+  display: grid;
+  gap: 3px;
+}
+
+.autoplay-recommendation span {
+  color: var(--orange);
+  font-size: 10.5px;
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.autoplay-recommendation b {
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
 .autoplay-action-list {
   display: grid;
   gap: 6px;

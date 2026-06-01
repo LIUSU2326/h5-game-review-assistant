@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.6 alpha.2";
+const APP_VERSION_LABEL = "v1.6 alpha.3";
 
 const state = {
   status: null,
@@ -1870,7 +1870,7 @@ function reviewContextMarkup(game, full = false) {
         ? game.videos.map((item) => `<a href="${escapeAttr(item.href)}" target="_blank" rel="noreferrer">${escapeHtml(item.name)}</a>`).join("")
         : `<span>${escapeHtml(game.video_status === "disabled" ? "当前档位不录视频" : "暂无视频")}</span>`}
     </div>
-    ${autoplayLine(game)}
+    ${autoplayReviewCard(game)}
     ${autoplayLogPreview(game, full ? 10 : 5)}
     <div class="field-section">
       <div class="field-section-head">AI 字段快照</div>
@@ -1901,7 +1901,7 @@ function selectedGamePreview(game, options = {}) {
   return `<section class="context-section selected-preview">
     <div class="context-section-head"><span>选中游戏</span><b>${escapeHtml(game.game_name || game.game_id)}</b></div>
     ${qualityPanel(signals)}
-    ${autoplayLine(game)}
+    ${autoplayReviewCard(game, { compact: true })}
     ${autoplayLogPreview(game, 4)}
     ${shotStripMarkup(game, { limit: shotLimit, compact: true })}
     ${options.includeActions ? `<div class="context-actions compact-actions">
@@ -1929,6 +1929,118 @@ function autoplayLine(game) {
     <span>自动试玩</span>
     <span>${escapeHtml(playStrategyLabel(autoplay.strategy || game.collection_quality?.play_strategy || "-"))} · ${escapeHtml(actionCount)} 次动作</span>
   </div>`;
+}
+
+function autoplayReviewCard(game, options = {}) {
+  const review = autoplayQualityReview(game);
+  const compact = Boolean(options.compact);
+  return `<section class="autoplay-review-card context-section ${escapeAttr(review.tone)} ${compact ? "compact" : ""}">
+    <div class="context-section-head">
+      <span>自动试玩复盘</span>
+      <b>${escapeHtml(review.title)}</b>
+    </div>
+    <p>${escapeHtml(review.detail)}</p>
+    <div class="context-metrics">
+      ${contextMetric("策略", review.strategyLabel, "")}
+      ${contextMetric("动作", String(review.actionCount), review.actionCount ? "good" : "warn")}
+      ${contextMetric("档位", String(review.runCount), review.runCount ? "good" : "warn")}
+      ${contextMetric("类型", review.actionTypeText, review.actionTypeTone)}
+    </div>
+    <div class="autoplay-recommendation">
+      <span>建议</span>
+      <b>${escapeHtml(review.recommendation)}</b>
+    </div>
+  </section>`;
+}
+
+function autoplayQualityReview(game) {
+  const autoplay = game.autoplay ?? {};
+  const collectionQuality = game.collection_quality ?? {};
+  const actions = autoplayActions(game);
+  const actionCount = autoplayActionCount(game);
+  const actionTypes = [...new Set(actions.map((action) => action.type).filter(Boolean))];
+  const runCount = Array.isArray(autoplay.runs) ? autoplay.runs.length : 0;
+  const strategy = autoplay.strategy || collectionQuality.play_strategy || "-";
+  const strategyLabel = playStrategyLabel(strategy);
+  const expectedScreenshots = Math.min(4, collectionQuality.expected_runs ?? 4);
+  const screenshotCount = game.screenshots?.length ?? 0;
+  const hasFailedRun = (collectionQuality.failed_runs ?? []).length > 0;
+  const hasTargetMismatch = (collectionQuality.target_mismatched_runs ?? []).length > 0;
+  const screenshotShort = screenshotCount < expectedScreenshots;
+  const oneNoteActions = actionCount > 0 && actionTypes.length <= 1;
+
+  if (!strategy || strategy === "-") {
+    return {
+      tone: "warn",
+      title: "暂无自动试玩记录",
+      detail: "没有读取到自动试玩策略或动作日志，只能依赖截图和人工复核判断。",
+      recommendation: "用 ai_probe_alpha 或 poc_review 重跑采集，先生成动作轨迹。",
+      strategyLabel: "-",
+      actionCount,
+      runCount,
+      actionTypeText: "-",
+      actionTypeTone: "warn",
+    };
+  }
+
+  if (hasFailedRun) {
+    return {
+      tone: "bad",
+      title: "采集档位失败",
+      detail: "部分设备或网络档位没有完成采集，自动试玩结论不稳定。",
+      recommendation: "优先重跑采集；若同一游戏仍失败，标为需人工确认。",
+      strategyLabel,
+      actionCount,
+      runCount,
+      actionTypeText: actionTypes.length ? `${actionTypes.length} 类` : "-",
+      actionTypeTone: actionTypes.length ? "" : "warn",
+    };
+  }
+
+  if (!actionCount) {
+    return {
+      tone: "warn",
+      title: "没有记录有效动作",
+      detail: `${strategyLabel} 未留下点击、拖拽或按键日志，可能停在首屏、广告或加载页。`,
+      recommendation: strategy === "passive" ? "改用引导探测或 AI 预留探测后重跑采集。" : "重跑采集，并复核截图是否被弹窗或广告遮挡。",
+      strategyLabel,
+      actionCount,
+      runCount,
+      actionTypeText: "-",
+      actionTypeTone: "warn",
+    };
+  }
+
+  if (hasTargetMismatch || screenshotShort || oneNoteActions) {
+    const detail = [
+      hasTargetMismatch ? "有设备档位疑似跳到其他页面" : "",
+      screenshotShort ? `截图 ${screenshotCount}/${expectedScreenshots}` : "",
+      oneNoteActions ? "动作类型偏单一" : "",
+    ].filter(Boolean).join("，");
+    return {
+      tone: "warn",
+      title: "轨迹可用但需复核",
+      detail: `${strategyLabel} 记录了 ${actionCount} 次动作，${detail || "仍建议人工确认核心玩法截图" }。`,
+      recommendation: "先看截图和动作日志；如果没有进入玩法，再用 AI 预留探测重跑。",
+      strategyLabel,
+      actionCount,
+      runCount,
+      actionTypeText: `${actionTypes.length} 类`,
+      actionTypeTone: oneNoteActions ? "warn" : "",
+    };
+  }
+
+  return {
+    tone: "good",
+    title: "轨迹可用",
+    detail: `${strategyLabel} 记录了 ${actionCount} 次动作，覆盖 ${actionTypes.length} 类操作，可作为 AI 字段生成依据。`,
+    recommendation: "进入人工复核，确认截图、视频和字段后即可写入飞书。",
+    strategyLabel,
+    actionCount,
+    runCount,
+    actionTypeText: `${actionTypes.length} 类`,
+    actionTypeTone: "good",
+  };
 }
 
 function autoplayLogPreview(game, limit = 5) {
