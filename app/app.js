@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.4 alpha.1";
+const APP_VERSION_LABEL = "v1.4 alpha.2";
 
 const state = {
   status: null,
@@ -95,6 +95,11 @@ function bindEvents() {
   elements.batchGameIds.addEventListener("input", renderBatchSummary);
   $("#toggleConsoleButton").addEventListener("click", toggleConsole);
   elements.cancelJobButton.addEventListener("click", cancelActiveJob);
+  $("#shotLightboxClose")?.addEventListener("click", closeShotPreview);
+  $("#shotLightboxBackdrop")?.addEventListener("click", closeShotPreview);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeShotPreview();
+  });
 
   $$(".rail-item[data-jump], .module[data-jump]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1997,6 +2002,12 @@ function bindContextPanelActions() {
     button.addEventListener("click", () => exportBatchReport(selectedBatchForDetail() ?? latestBatchRecord(state.status?.batch)));
   });
   $("[data-export-evidence]")?.addEventListener("click", () => exportEvidencePackage(game?.game_id));
+  $$("[data-shot-preview]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openShotPreview(link);
+    });
+  });
   $("#panelRunSelectedButton")?.addEventListener("click", runSelectedGame);
 }
 
@@ -2030,6 +2041,31 @@ async function exportEvidencePackage(gameId) {
   const sizeMb = result.size_bytes ? `${(result.size_bytes / 1024 / 1024).toFixed(2)} MB` : "未知大小";
   appendConsole(`证据包已生成：${result.file_name}（${sizeMb}）`);
   if (result.href) window.open(result.href, "_blank", "noopener,noreferrer");
+}
+
+function openShotPreview(link) {
+  const modal = $("#shotLightbox");
+  const image = $("#shotLightboxImage");
+  const title = $("#shotLightboxTitle");
+  const open = $("#shotLightboxOpen");
+  if (!modal || !image || !title || !open) return;
+  const href = link.getAttribute("href") || "";
+  const name = link.dataset.shotName || link.textContent?.trim() || "截图预览";
+  image.src = href;
+  image.alt = name;
+  title.textContent = name;
+  open.href = href;
+  modal.hidden = false;
+  document.body.classList.add("lightbox-open");
+  $("#shotLightboxClose")?.focus();
+}
+
+function closeShotPreview() {
+  const modal = $("#shotLightbox");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  document.body.classList.remove("lightbox-open");
+  $("#shotLightboxImage")?.removeAttribute("src");
 }
 
 function renderJobs() {
@@ -2449,7 +2485,7 @@ function fieldItem(label, value) {
 }
 
 function shot(item) {
-  return `<a class="shot" href="${escapeAttr(item.href)}" target="_blank" rel="noreferrer">
+  return `<a class="shot" href="${escapeAttr(item.href)}" data-shot-preview data-shot-name="${escapeAttr(item.name)}">
     <img src="${escapeAttr(item.href)}" alt="${escapeAttr(item.name)}">
     <span>${escapeHtml(item.name)}</span>
   </a>`;

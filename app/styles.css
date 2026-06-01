@@ -1439,7 +1439,14 @@ textarea:focus-visible {
   background: var(--surface);
   display: grid;
   grid-template-rows: 104px auto;
-  cursor: default;
+  cursor: zoom-in;
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+
+.shot:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--tight-shadow);
 }
 
 .shot img {
@@ -1468,6 +1475,96 @@ textarea:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+body.lightbox-open {
+  overflow: hidden;
+}
+
+.shot-lightbox[hidden] {
+  display: none;
+}
+
+.shot-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.shot-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background:
+    radial-gradient(circle at 75% 18%, color-mix(in oklch, var(--accent) 22%, transparent), transparent 32%),
+    color-mix(in oklch, var(--ink) 76%, transparent);
+  cursor: zoom-out;
+}
+
+.shot-lightbox-panel {
+  position: relative;
+  width: min(1180px, calc(100vw - 64px));
+  height: min(820px, calc(100vh - 64px));
+  border: 1px solid color-mix(in oklch, var(--surface) 24%, transparent);
+  border-radius: 18px;
+  background: color-mix(in oklch, var(--ink) 92%, black);
+  box-shadow: 0 30px 90px color-mix(in oklch, black 58%, transparent);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.shot-lightbox-head {
+  min-height: 70px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid color-mix(in oklch, var(--surface) 18%, transparent);
+}
+
+.shot-lightbox-head span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 2px;
+}
+
+.shot-lightbox-head b {
+  display: block;
+  margin-top: 4px;
+  color: var(--paper);
+  font-size: 18px;
+}
+
+.shot-lightbox-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.shot-lightbox-stage {
+  min-height: 0;
+  padding: 18px;
+  display: grid;
+  place-items: center;
+  background:
+    linear-gradient(45deg, color-mix(in oklch, var(--paper) 8%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in oklch, var(--paper) 8%, transparent) 25%, transparent 25%),
+    color-mix(in oklch, var(--ink) 96%, black);
+  background-size: 24px 24px;
+}
+
+.shot-lightbox-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px color-mix(in oklch, black 42%, transparent);
 }
 
 .evidence-line,
