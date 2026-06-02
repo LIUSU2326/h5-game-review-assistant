@@ -1289,6 +1289,40 @@ textarea:focus-visible {
   line-height: 1.35;
 }
 
+.experience-readiness.good {
+  background: rgba(215, 236, 213, .54);
+  border-color: #9fc9a2;
+}
+
+.experience-readiness.warn {
+  background: rgba(248, 226, 188, .52);
+  border-color: #d7b46e;
+}
+
+.experience-readiness.bad {
+  background: rgba(251, 207, 217, .5);
+  border-color: #dfa0b2;
+}
+
+.readiness-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.readiness-row.good {
+  background: var(--green-soft);
+  border-color: #b4d3b6;
+}
+
+.readiness-row.warn {
+  background: var(--gold-soft);
+  border-color: #dfc382;
+}
+
+.readiness-row.bad {
+  background: var(--red-soft);
+  border-color: #e4adbd;
+}
+
 .context-actions {
   display: flex;
   gap: 8px;

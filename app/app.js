@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.2 alpha.2";
+const APP_VERSION_LABEL = "v1.8.3 beta.1";
 
 const state = {
   status: null,
@@ -1036,6 +1036,118 @@ function setupStepsData() {
       action: fieldState.action || { label: "去配置", scroll: "config" },
     },
   ];
+}
+
+function buildExperienceTestReadiness() {
+  const config = state.status?.config ?? {};
+  const games = state.status?.games ?? [];
+  const ai = aiConfig(config);
+  const activeAi = activeAiProvider(ai);
+  const feishu = config.feishu ?? {};
+  const taxonomyCount = Number(config.taxonomy?.option_count ?? 0);
+  const fieldState = fieldComposerWriteReadiness();
+  const suggestions = state.taxonomySuggestions?.summary ?? {};
+  const pendingSuggestions = Number(suggestions.pending ?? 0);
+  const acceptedSuggestions = Number(suggestions.accepted_actionable ?? 0);
+  const readyGames = games.filter((game) => gameHealth(game).done).length;
+  const evidenceGames = games.filter((game) => gameHealth(game).evidenceReady).length;
+  const dryRun = state.status?.batch?.dry_run ?? null;
+  const latestRun = state.status?.batch?.last_run ?? null;
+  const uploadEnabled = Boolean(feishu.upload_screenshots);
+  const screenshotUploadStatuses = games
+    .map((game) => game.screenshot_upload_status || game.screenshot_upload?.status || "")
+    .filter(Boolean);
+  const uploadedCount = screenshotUploadStatuses.filter((status) => ["ready_for_upload", "uploaded", "partial_failed"].includes(status)).length;
+  const screenshotTone = uploadEnabled
+    ? uploadedCount
+      ? (screenshotUploadStatuses.includes("partial_failed") ? "warn" : "good")
+      : "warn"
+    : "warn";
+  const rows = [
+    readinessItem(
+      activeAi?.runtime_ready && activeAi.latest_check_status === "ok" ? "good" : "bad",
+      "AI 模型可调用",
+      activeAi?.runtime_ready && activeAi.latest_check_status === "ok"
+        ? `${aiProviderLabel(ai.active_provider)} 连接测试通过。`
+        : "先让生产评测可调用模型，否则只能测本地兜底流程。",
+      activeAi?.runtime_ready && activeAi.latest_check_status === "ok" ? null : { label: "测试", job: "gemini-test" },
+    ),
+    readinessItem(
+      feishu.ready ? "good" : "bad",
+      "飞书目标可写",
+      feishu.ready ? `目标表：${feishu.evaluation_table_id || "已连接"}` : "先确认 App 权限、App Token 和目标表。真实测试要能看到写入结果。",
+      feishu.ready ? null : { label: "检查", job: "feishu-check" },
+    ),
+    readinessItem(
+      fieldState.ok ? "good" : "bad",
+      "输出字段已确认",
+      fieldState.ok ? "拖入分类的字段会写入对应飞书数据表。" : fieldState.detail,
+      fieldState.ok ? null : fieldState.action,
+    ),
+    readinessItem(
+      taxonomyCount > 0 ? "good" : "bad",
+      "标签库已同步",
+      taxonomyCount > 0 ? `已读取 ${taxonomyCount} 个玩法、题材、画风或标签选项。` : "先从飞书 Taxonomy Options 读取单选和多选选项。",
+      taxonomyCount > 0 ? null : (feishu.taxonomy_table_id ? { label: "同步", job: "taxonomy-sync" } : { label: "去配置", scroll: "config" }),
+    ),
+    readinessItem(
+      pendingSuggestions || acceptedSuggestions ? "warn" : "good",
+      "标签建议复核",
+      pendingSuggestions
+        ? `${pendingSuggestions} 条待审，先决定是否加入标签库。`
+        : acceptedSuggestions
+          ? `${acceptedSuggestions} 条已接受，写回前需要生成预览。`
+          : "暂无待处理新增标签。",
+      pendingSuggestions || acceptedSuggestions ? { label: "查看", scroll: "config" } : null,
+    ),
+    readinessItem(
+      games.length ? (readyGames ? "good" : "warn") : "bad",
+      "样本与单款结果",
+      games.length
+        ? readyGames
+          ? `${games.length} 款样本，${readyGames} 款已完整跑通。`
+          : `${games.length} 款样本，建议先完整跑通 1 款再扩大批量。`
+        : "先导入至少一款游戏链接，再做体验测试。",
+      games.length ? (readyGames ? null : { label: "开始运行", scroll: "runner" }) : { label: "导入", scroll: "runner" },
+    ),
+    readinessItem(
+      dryRun ? "good" : "warn",
+      "批量范围已预演",
+      dryRun ? `${batchModeLabel(dryRun.mode)} · ${displayValue(dryRun.status || "-")}` : "真实批量前先预演队列，确认会跑哪些游戏。",
+      dryRun ? null : { label: "预演", scroll: "runner" },
+    ),
+    readinessItem(
+      evidenceGames && screenshotTone === "good" ? "good" : "warn",
+      "截图与证据复核",
+      evidenceGames
+        ? uploadEnabled
+          ? uploadedCount
+            ? `${evidenceGames} 款可复核，${uploadedCount} 款有截图附件状态。`
+            : `${evidenceGames} 款可复核，仍需验证飞书附件能否直接查看。`
+          : `${evidenceGames} 款可复核；当前只写本地路径，不验证飞书附件预览。`
+        : "还没有足够截图证据，先跑单款采集。",
+      evidenceGames ? null : { label: "看复核", scroll: "results" },
+    ),
+  ];
+  const blocking = rows.filter((item) => item.tone === "bad").length;
+  const warnings = rows.filter((item) => item.tone === "warn").length;
+  const passed = rows.filter((item) => item.tone === "good").length;
+  return {
+    tone: blocking ? "bad" : warnings ? "warn" : "good",
+    title: blocking ? "先处理阻塞项" : warnings ? "可以小范围试跑" : "可以开始体验测试",
+    detail: latestRun
+      ? `最近运行：${batchModeLabel(latestRun.mode)} · ${displayValue(latestRun.status || "-")}`
+      : "建议先按单款到小批量的顺序试跑。",
+    blocking,
+    warnings,
+    passed,
+    total: rows.length,
+    rows,
+  };
+}
+
+function readinessItem(tone, title, detail, action = null) {
+  return { tone, title, detail, action };
 }
 
 function renderStorageGuide() {
@@ -2651,6 +2763,7 @@ function renderConfigContext() {
   const taxonomyCount = Number(config.taxonomy?.option_count ?? 0);
   const fieldState = fieldComposerWriteReadiness();
   const fieldDiffStatus = fieldComposerStatusLabel(state.fieldComposerDiff?.status);
+  const testReadiness = buildExperienceTestReadiness();
   const body = `
     <div class="context-metrics">
       ${contextMetric("进度", `${done}/${steps.length}`, done === steps.length ? "good" : "warn")}
@@ -2683,6 +2796,7 @@ function renderConfigContext() {
         ${contextMetric("截图", feishu.upload_screenshots ? "飞书附件字段" : "本地路径", "")}
       </div>
     </section>
+    ${experienceTestReadinessPanel(testReadiness)}
     <section class="context-section">
       <div class="context-section-head"><span>配置健康度</span><b>配置清单</b></div>
       <div class="context-list">${steps.map(contextSetupRow).join("")}</div>
@@ -2696,11 +2810,43 @@ function renderConfigContext() {
     kicker: "配置",
     title: "配置状态",
     subtitle: "只显示状态，不回显已保存的密钥和 Secret。",
-    chips: [[done === steps.length ? "就绪" : "待配置", done === steps.length ? "good" : "warn"]],
+    chips: [[done === steps.length ? "就绪" : "待配置", done === steps.length ? "good" : "warn"], [testReadiness.title, testReadiness.tone]],
     body,
     footer: `<button class="button" data-panel-job="quick-check" type="button">快速检查</button><button class="button primary" data-panel-jump="config" data-panel-view="config" type="button">去配置</button>`,
     variant: "context-config",
   });
+}
+
+function experienceTestReadinessPanel(readiness) {
+  const visibleRows = readiness.rows.filter((item) => item.tone !== "good");
+  const passSummary = readiness.passed
+    ? experienceReadinessRow(readinessItem("good", `${readiness.passed} 项已通过`, "已通过项不展开，优先处理上面的阻塞和观察项。"))
+    : "";
+  return `<section class="context-section experience-readiness ${escapeAttr(readiness.tone)}">
+    <div class="context-section-head">
+      <span>v1.8.3 体验测试清单</span>
+      <b>${escapeHtml(readiness.title)}</b>
+    </div>
+    <p>${escapeHtml(readiness.detail)}</p>
+    <div class="context-metrics readiness-metrics">
+      ${contextMetric("阻塞", readiness.blocking, readiness.blocking ? "bad" : "good")}
+      ${contextMetric("待观察", readiness.warnings, readiness.warnings ? "warn" : "good")}
+      ${contextMetric("通过", `${readiness.passed}/${readiness.total}`, readiness.blocking ? "warn" : "good")}
+    </div>
+    <div class="context-list">
+      ${visibleRows.map(experienceReadinessRow).join("") || contextEmpty("没有阻塞和待观察项，可以开始体验测试。")}
+      ${passSummary}
+    </div>
+  </section>`;
+}
+
+function experienceReadinessRow(item) {
+  const label = item.tone === "bad" ? "阻塞" : item.tone === "warn" ? "观察" : "通过";
+  const action = item.action ? contextActionMarkup(item.action) : pill(label, item.tone);
+  return `<div class="context-row readiness-row ${escapeAttr(item.tone)}">
+    <div><b>${escapeHtml(item.title)}</b><span>${escapeHtml(item.detail)}</span></div>
+    ${action}
+  </div>`;
 }
 
 function renderGuideContext() {
