@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 beta.1";
+const APP_VERSION_LABEL = "v1.8.3 beta.2";
 
 const state = {
   status: null,
@@ -196,6 +196,7 @@ function activateSection(targetId, preferredView, workbenchMode) {
   const viewName = preferredView || target?.closest(".workspace-view")?.dataset.view || targetId;
   const workbench = $("#workbench");
   const nextMode = viewName === "workbench" ? (workbenchMode || "workbench") : "";
+  const shouldScrollToTarget = Boolean(target && target.id !== viewName && target.closest(".workspace-view"));
   state.currentView = viewName || "workbench";
   state.currentWorkbenchMode = nextMode;
 
@@ -211,7 +212,11 @@ function activateSection(targetId, preferredView, workbenchMode) {
   const scrollHost = $("#mainWorkspace") ?? document.documentElement;
   if (scrollHost) {
     requestAnimationFrame(() => {
-      scrollHost.scrollTo({ top: 0, behavior: "auto" });
+      if (shouldScrollToTarget) {
+        target.scrollIntoView({ block: "start", behavior: "auto" });
+      } else {
+        scrollHost.scrollTo({ top: 0, behavior: "auto" });
+      }
     });
   }
   renderWorkbenchMode();
@@ -407,21 +412,30 @@ function fieldComposerWriteReadiness() {
     return { ok: false, label: "读取字段中", detail: "字段编排器还在读取，请稍后再运行。", action: null };
   }
   if (!status) {
-    return { ok: false, label: "先检查字段", detail: "先到配置中心检查飞书差异，确认分类表和字段能写入。", action: { label: "检查字段", fieldDiff: true } };
+    return { ok: false, label: "先检查字段", detail: "先检查分类表和字段差异；只检查，不会改动飞书。", action: { label: "检查字段", scroll: "fieldComposer", fieldDiff: true } };
   }
   if (status === "ready") {
     return { ok: true, label: "字段已就绪", detail: "飞书分类表和字段结构已匹配。" };
   }
   if (status === "needs_confirmation") {
-    return { ok: false, label: "先确认字段", detail: "飞书缺少表或字段，需要二次确认后再创建。", action: { label: "去确认", scroll: "config" } };
+    const summary = state.fieldComposerDiff?.summary ?? {};
+    const missingTables = Number(summary.missing_tables ?? 0);
+    const missingFields = Number(summary.missing_fields ?? 0);
+    return {
+      ok: false,
+      label: "确认创建分类表",
+      detail: `飞书缺少 ${missingTables} 个分类表、${missingFields} 个字段；确认后工具只新增，不删除、不改类型。`,
+      action: { label: "去确认", scroll: "fieldComposer" },
+    };
   }
   if (status === "blocked_type_conflict") {
-    return { ok: false, label: "处理字段冲突", detail: "飞书已有字段类型与本地编排冲突，需要先人工调整。", action: { label: "查看冲突", scroll: "config" } };
+    const count = Number(state.fieldComposerDiff?.summary?.type_conflicts ?? 0);
+    return { ok: false, label: "处理字段冲突", detail: `${count} 个飞书已有字段类型与本地编排冲突，需要先人工调整。`, action: { label: "查看冲突", scroll: "fieldComposer" } };
   }
   if (status === "needs_feishu_config") {
     return { ok: false, label: "先配置飞书", detail: "飞书凭证或多维表格目标还没有就绪。", action: { label: "去配置", scroll: "config" } };
   }
-  return { ok: false, label: "重新检查字段", detail: "最近一次字段检查未通过，先重新检查飞书差异。", action: { label: "重新检查", fieldDiff: true } };
+  return { ok: false, label: "重新检查字段", detail: "最近一次字段检查未通过，先重新检查飞书差异。", action: { label: "重新检查", scroll: "fieldComposer", fieldDiff: true } };
 }
 
 function buildRunGate(options = {}) {
@@ -841,6 +855,7 @@ async function saveFieldComposer(options = {}) {
   renderFieldComposerWorkbench();
   renderRunGate();
   renderNextStep();
+  renderContextPanel();
   if (!options.silent) appendConsole("字段编排已保存。");
 }
 
@@ -851,6 +866,7 @@ async function checkFieldComposerDiff() {
   renderFieldComposerWorkbench();
   renderRunGate();
   renderNextStep();
+  renderContextPanel();
   appendConsole(`字段差异检查完成：${displayValue(state.fieldComposerDiff.status)}`);
 }
 
@@ -863,6 +879,7 @@ async function resetFieldComposer() {
   renderFieldComposerWorkbench();
   renderRunGate();
   renderNextStep();
+  renderContextPanel();
   appendConsole("字段编排已恢复默认。");
 }
 
@@ -887,6 +904,7 @@ async function applyFieldComposerSchema() {
   renderFieldComposerWorkbench();
   renderRunGate();
   renderNextStep();
+  renderContextPanel();
   const result = state.fieldComposerApply ?? {};
   appendConsole(`飞书结构同步：${displayValue(result.status)}；新建表 ${result.created_tables?.length ?? 0}，新建字段 ${result.created_fields?.length ?? 0}。`);
 }
@@ -1080,7 +1098,7 @@ function buildExperienceTestReadiness() {
     ),
     readinessItem(
       fieldState.ok ? "good" : "bad",
-      "输出字段已确认",
+      fieldState.ok ? "输出字段已确认" : fieldState.label,
       fieldState.ok ? "拖入分类的字段会写入对应飞书数据表。" : fieldState.detail,
       fieldState.ok ? null : fieldState.action,
     ),
@@ -3369,9 +3387,12 @@ function contextGuideRow(title, detail, index) {
 
 function contextActionMarkup(action) {
   if (!action) return "";
-  if (action.job) return `<button class="button small" data-panel-job="${escapeAttr(action.job)}" type="button">${escapeHtml(action.label)}</button>`;
-  if (action.scroll) return `<button class="button small" data-panel-jump="${escapeAttr(action.scroll)}" type="button">${escapeHtml(action.label)}</button>`;
-  if (action.fieldDiff) return `<button class="button small" data-panel-field-diff type="button">${escapeHtml(action.label)}</button>`;
+  const attrs = [
+    action.job ? `data-panel-job="${escapeAttr(action.job)}"` : "",
+    action.scroll ? `data-panel-jump="${escapeAttr(action.scroll)}"` : "",
+    action.fieldDiff ? "data-panel-field-diff=\"true\"" : "",
+  ].filter(Boolean).join(" ");
+  if (attrs) return `<button class="button small" ${attrs} type="button">${escapeHtml(action.label)}</button>`;
   return "";
 }
 
