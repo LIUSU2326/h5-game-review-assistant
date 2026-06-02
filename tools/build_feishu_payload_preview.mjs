@@ -57,11 +57,21 @@ for (const mapping of mappings) {
   }
 }
 
-const taxonomyPreflight = buildTaxonomyPreflight(fields, mappings, taxonomy);
+const taxonomyPreflight = buildTaxonomyPreflight({
+  legacyFields: fields,
+  mappings,
+  taxonomySource: taxonomy,
+  fieldComposer,
+  source,
+});
 if (taxonomyPreflight.status !== "ready") {
   source.derived.needs_taxonomy_review = true;
   fields["Needs Taxonomy Review"] = true;
   if (taxonomyPreflight.missing_options.length) {
+    source.ai.en.taxonomy_new_suggestions = appendTaxonomyPreflightSuggestionObjects(
+      source.ai.en.taxonomy_new_suggestions,
+      taxonomyPreflight.missing_options,
+    );
     fields["Taxonomy Suggestions"] = appendTaxonomyPreflightSuggestions(
       fields["Taxonomy Suggestions"],
       taxonomyPreflight.missing_options,
@@ -188,8 +198,10 @@ function normalizeFieldComposer(source) {
     .map((field) => ({
       id: String(field.id ?? "").trim(),
       field_name: String(field.field_name ?? "").trim(),
+      label_zh: String(field.label_zh ?? "").trim(),
       source_path: String(field.source_path ?? "").trim(),
       feishu_type: normalizeFeishuType(field.feishu_type),
+      option_category: String(field.option_category ?? "").trim(),
       required: Boolean(field.required),
     }))
     .filter((field) => field.id && field.field_name && field.source_path);
@@ -273,7 +285,7 @@ function splitOptionText(value) {
     .filter(Boolean);
 }
 
-function buildTaxonomyPreflight(fields, mappings, taxonomySource) {
+function buildTaxonomyPreflight({ legacyFields, mappings, taxonomySource, fieldComposer, source }) {
   const checkedFields = [];
   const missingOptions = [];
   const categories = taxonomySource?.categories ?? {};
@@ -281,30 +293,64 @@ function buildTaxonomyPreflight(fields, mappings, taxonomySource) {
     Object.entries(categories).map(([category, options]) => [category, buildTaxonomyOptionIndex(options)]),
   );
   const taxonomyStatus = taxonomySource?.status || "missing";
+  const taxonomySynced = Boolean(taxonomySource?.option_count);
+  const summaryByCategory = new Map();
+  const activeFields = activeTaxonomyFields(fieldComposer, source);
+  const fieldsToCheck = activeFields.length
+    ? activeFields
+    : mappings
+      .map((mapping) => ({
+        field_name: mapping.field_name,
+        field_label_zh: "",
+        category: taxonomyCategoryForField(mapping.field_name),
+        feishu_type: mapping.feishu_type,
+        values: normalizeTaxonomyFieldValues(legacyFields[mapping.field_name]),
+      }))
+      .filter((field) => field.category);
 
-  for (const mapping of mappings) {
-    const category = taxonomyCategoryForField(mapping.field_name);
-    if (!category) continue;
-    const values = normalizeTaxonomyFieldValues(fields[mapping.field_name]);
+  for (const field of fieldsToCheck) {
+    const category = field.category;
+    const values = field.values ?? [];
     const known = categoryIndexes.get(category) ?? new Set();
-    const fieldMissing = values.filter((value) => !known.has(normalizeTaxonomyKey(value)));
-    const status = !taxonomySource?.option_count
+    const fieldMissing = taxonomySynced ? values.filter((value) => !known.has(normalizeTaxonomyKey(value))) : [];
+    const status = !taxonomySynced
       ? "taxonomy_not_synced"
       : fieldMissing.length
         ? "missing_options"
         : "ready";
+    const categoryLabelZh = taxonomyCategoryLabelZh(category);
     checkedFields.push({
-      field_name: mapping.field_name,
+      field_name: field.field_name,
+      field_label_zh: field.field_label_zh,
       category,
-      feishu_type: mapping.feishu_type,
+      category_label_zh: categoryLabelZh,
+      feishu_type: field.feishu_type,
       values,
       missing_options: fieldMissing,
       status,
     });
+    const summary = summaryByCategory.get(category) ?? {
+      category,
+      label_zh: categoryLabelZh,
+      checked_fields: 0,
+      checked_values: 0,
+      matched_options: 0,
+      missing_options: 0,
+      status: "ready",
+    };
+    summary.checked_fields += 1;
+    summary.checked_values += values.length;
+    summary.matched_options += Math.max(0, values.length - fieldMissing.length);
+    summary.missing_options += fieldMissing.length;
+    if (status === "missing_options") summary.status = "missing_options";
+    else if (status === "taxonomy_not_synced" && summary.status === "ready") summary.status = "taxonomy_not_synced";
+    summaryByCategory.set(category, summary);
     for (const value of fieldMissing) {
       missingOptions.push({
-        field_name: mapping.field_name,
+        field_name: field.field_name,
+        field_label_zh: field.field_label_zh,
         category,
+        category_label_zh: categoryLabelZh,
         option: value,
         suggestion: value,
       });
@@ -312,13 +358,43 @@ function buildTaxonomyPreflight(fields, mappings, taxonomySource) {
   }
 
   return {
-    status: missingOptions.length ? "needs_review" : taxonomySource?.option_count ? "ready" : "taxonomy_not_synced",
+    status: missingOptions.length ? "needs_review" : taxonomySynced ? "ready" : "taxonomy_not_synced",
     taxonomy_status: taxonomyStatus,
     taxonomy_table_id: taxonomySource?.table_id ?? "",
     option_count: taxonomySource?.option_count ?? 0,
     checked_fields: checkedFields,
     missing_options: missingOptions,
+    summary: {
+      checked_field_count: checkedFields.length,
+      checked_value_count: checkedFields.reduce((sum, field) => sum + (field.values?.length ?? 0), 0),
+      matched_option_count: checkedFields.reduce((sum, field) => sum + Math.max(0, (field.values?.length ?? 0) - (field.missing_options?.length ?? 0)), 0),
+      missing_option_count: missingOptions.length,
+      category_count: summaryByCategory.size,
+      by_category: [...summaryByCategory.values()],
+    },
   };
+}
+
+function activeTaxonomyFields(composer, source) {
+  const fieldsById = new Map((composer?.fields ?? []).map((field) => [field.id, field]));
+  const activeIds = new Set((composer?.categories ?? []).flatMap((category) => category.field_ids ?? []));
+  const fields = [];
+  for (const fieldId of activeIds) {
+    const field = fieldsById.get(fieldId);
+    if (!field) continue;
+    const category = field.option_category || taxonomyCategoryForField(field.field_name);
+    if (!category) continue;
+    if (!["single_select", "multi_select"].includes(field.feishu_type)) continue;
+    const rawValue = getPath(source, field.source_path);
+    fields.push({
+      field_name: field.field_name,
+      field_label_zh: field.label_zh,
+      category,
+      feishu_type: field.feishu_type,
+      values: normalizeTaxonomyFieldValues(normalizeForFeishu(rawValue, field.feishu_type)),
+    });
+  }
+  return fields;
 }
 
 function buildTaxonomyOptionIndex(options) {
@@ -355,9 +431,35 @@ function taxonomyCategoryForField(fieldName) {
   return categories[fieldName] ?? "";
 }
 
+function taxonomyCategoryLabelZh(category) {
+  const labels = {
+    audiences: "人群",
+    gameplay_types: "玩法",
+    themes: "题材",
+    art_styles: "画风",
+    feature_tags: "特色标签",
+    controls: "操作",
+  };
+  return labels[category] ?? category;
+}
+
+function appendTaxonomyPreflightSuggestionObjects(currentValue, missingOptions) {
+  const current = Array.isArray(currentValue) ? currentValue : [];
+  const additions = missingOptions.map((item) => ({
+    field: item.field_name,
+    suggestion: item.suggestion,
+    reason: `Not found in Feishu taxonomy category: ${item.category}.`,
+    category: item.category,
+    category_label_zh: item.category_label_zh,
+    language: "en",
+    source: "taxonomy_preflight",
+  }));
+  return [...current, ...additions];
+}
+
 function appendTaxonomyPreflightSuggestions(currentValue, missingOptions) {
   const current = stringifyLongText(currentValue).trim();
-  const lines = missingOptions.map((item) => `${item.field_name}: ${item.option}\nNot found in ${item.category}; review before writing to Feishu.`);
+  const lines = missingOptions.map((item) => `${item.field_name}: ${item.option}\nNot found in ${item.category_label_zh || item.category}; review before writing to Feishu.`);
   return [current, ...lines].filter(Boolean).join("\n\n");
 }
 

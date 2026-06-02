@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.1 alpha.1";
+const APP_VERSION_LABEL = "v1.8.2 alpha.1";
 
 const state = {
   status: null,
@@ -384,7 +384,7 @@ function renderStatus() {
   elements.metricVideos.textContent = String(videoCount);
   elements.metricFlags.textContent = String(flagCount);
   elements.writtenCount.textContent = configured.feishu?.ready
-    ? `字段就绪 · ${configured.feishu?.upload_screenshots ? "截图上传" : "截图本地"}`
+    ? `字段就绪 · ${configured.feishu?.upload_screenshots ? "截图附件字段" : "截图本地路径"}`
     : "字段待检查";
 }
 
@@ -2609,7 +2609,7 @@ function renderConfigContext() {
       ${contextMetric("进度", `${done}/${steps.length}`, done === steps.length ? "good" : "warn")}
       ${contextMetric("AI", activeAi?.api_key_configured ? aiProviderLabel(ai.active_provider) : "待填", activeAi?.api_key_configured ? "good" : "bad")}
       ${contextMetric("飞书", feishu.ready ? "已连接" : "待检", feishu.ready ? "good" : "warn")}
-      ${contextMetric("截图", feishu.upload_screenshots ? "上传" : "本地", "")}
+      ${contextMetric("截图", feishu.upload_screenshots ? "附件字段" : "本地路径", "")}
     </div>
     <section class="context-section">
       <div class="context-section-head"><span>AI 模型</span><b>${escapeHtml(activeAi?.model || aiProviderLabel(ai.active_provider))}</b></div>
@@ -2633,7 +2633,7 @@ function renderConfigContext() {
       <div class="context-metrics">
         ${contextMetric("字段", fieldState.ok ? "匹配" : fieldDiffStatus, fieldState.ok ? "good" : "warn")}
         ${contextMetric("标签库", taxonomyCount ? `${taxonomyCount} 项` : "待同步", taxonomyCount ? "good" : "warn")}
-        ${contextMetric("截图", feishu.upload_screenshots ? "上传附件" : "本地路径", "")}
+        ${contextMetric("截图", feishu.upload_screenshots ? "飞书附件字段" : "本地路径", "")}
       </div>
     </section>
     <section class="context-section">
@@ -2701,6 +2701,8 @@ function reviewContextMarkup(game, full = false) {
 
   const body = `
     ${qualityPanel(signals)}
+    ${screenshotUploadPanel(game)}
+    ${taxonomyPreflightPanel(game)}
     ${shotStrip}
     <div class="evidence-line">
       <span>本地视频</span>
@@ -2714,7 +2716,6 @@ function reviewContextMarkup(game, full = false) {
       <div class="field-section-head">AI 字段快照</div>
       <div class="field-grid">${gameFieldPairs(game).map(([label, value]) => fieldItem(label, value || "-")).join("")}</div>
     </div>
-    ${taxonomyPreflightPanel(game)}
     ${reviewBoxMarkup(review, signals, reviewMeta)}
     <div class="copy-block">
       <h3>英文简介</h3>
@@ -2740,6 +2741,7 @@ function selectedGamePreview(game, options = {}) {
   return `<section class="context-section selected-preview">
     <div class="context-section-head"><span>选中游戏</span><b>${escapeHtml(game.game_name || game.game_id)}</b></div>
     ${qualityPanel(signals)}
+    ${selectedWriteReadiness(game)}
     ${autoplayReviewCard(game, { compact: true })}
     ${autoplayLogPreview(game, 4)}
     ${shotStripMarkup(game, { limit: shotLimit, compact: true })}
@@ -2748,6 +2750,26 @@ function selectedGamePreview(game, options = {}) {
       <button class="button" data-rerun="ai" type="button">重跑 AI</button>
     </div>` : ""}
   </section>`;
+}
+
+function selectedWriteReadiness(game) {
+  const preflight = game.taxonomy_preflight;
+  const upload = game.screenshot_upload;
+  if (!preflight && !upload) return "";
+  const preflightMissing = preflight?.summary?.missing_option_count ?? preflight?.missing_options?.length ?? 0;
+  const preflightLabel = preflight
+    ? preflightMissing
+      ? `${preflightMissing} 缺失`
+      : displayValue(preflight.status)
+    : "-";
+  const preflightTone = preflight
+    ? preflightMissing || preflight.status === "taxonomy_not_synced" ? "warn" : "good"
+    : "";
+  const uploadInfo = upload ? screenshotUploadInfo(upload) : null;
+  return `<div class="context-metrics selected-write-metrics">
+    ${preflight ? contextMetric("标签预检", preflightLabel, preflightTone) : ""}
+    ${upload ? contextMetric("截图写入", uploadInfo.title, uploadInfo.tone) : ""}
+  </div>`;
 }
 
 function shotStripMarkup(game, { limit = 4, full = false, compact = false } = {}) {
@@ -2965,14 +2987,106 @@ function taxonomyPreflightPanel(game) {
   const preflight = game.taxonomy_preflight;
   if (!preflight) return "";
   const missing = preflight.missing_options ?? [];
-  const checked = preflight.checked_fields ?? [];
-  const rows = missing.length
-    ? missing.slice(0, 6).map((item) => fieldItem(item.field_name, `${item.option} · ${item.category}`)).join("")
-    : checked.slice(0, 6).map((item) => fieldItem(item.field_name, `${item.values?.length ?? 0} 项已匹配`)).join("");
-  return `<div class="field-section taxonomy-preflight ${escapeAttr(missing.length ? "warn" : "good")}">
-    <div class="field-section-head">飞书标签库预检 · ${escapeHtml(displayValue(game.feishu_preview_status || preflight.status))}</div>
-    <div class="field-grid">${rows || fieldItem("状态", "暂无可检查字段")}</div>
+  const synced = Number(preflight.option_count ?? 0) > 0;
+  const tone = missing.length || !synced ? "warn" : "good";
+  const rows = taxonomyPreflightRows(preflight);
+  const checkedFields = preflight.checked_fields ?? [];
+  const checkedFieldCount = preflight.summary?.checked_field_count ?? checkedFields.length;
+  const matchedOptionCount = preflight.summary?.matched_option_count ?? checkedFields.reduce((sum, field) => sum + Math.max(0, (field.values?.length ?? 0) - (field.missing_options?.length ?? 0)), 0);
+  const missingOptionCount = preflight.summary?.missing_option_count ?? missing.length;
+  return `<div class="field-section taxonomy-preflight ${escapeAttr(tone)}">
+    <div class="field-section-head">飞书标签库预检 · ${escapeHtml(displayValue(preflight.status || game.feishu_preview_status))}</div>
+    <div class="context-metrics">
+      ${contextMetric("字段", String(checkedFieldCount), "")}
+      ${contextMetric("已匹配", String(matchedOptionCount), synced && !missing.length ? "good" : "")}
+      ${contextMetric("缺失", String(missingOptionCount), missing.length ? "warn" : "good")}
+    </div>
+    <div class="field-grid">${rows || fieldItem("状态", synced ? "暂无可检查字段" : "请先同步飞书标签库")}</div>
   </div>`;
+}
+
+function taxonomyPreflightRows(preflight) {
+  const missing = preflight.missing_options ?? [];
+  if (missing.length) {
+    return missing.slice(0, 6).map((item) => {
+      const category = item.category_label_zh || taxonomyCategoryLabel(item.category);
+      return fieldItem(item.field_label_zh || item.field_name, `${item.option} · ${category}待确认`);
+    }).join("");
+  }
+  const categories = preflight.summary?.by_category ?? [];
+  if (categories.length) {
+    return categories.slice(0, 6).map((item) => {
+      const label = item.label_zh || taxonomyCategoryLabel(item.category);
+      const detail = item.status === "taxonomy_not_synced"
+        ? "待同步标签库"
+        : `${item.matched_options ?? 0}/${item.checked_values ?? 0} 项已匹配`;
+      return fieldItem(label, detail);
+    }).join("");
+  }
+  return (preflight.checked_fields ?? []).slice(0, 6).map((item) => {
+    const label = item.field_label_zh || item.field_name;
+    return fieldItem(label, `${item.values?.length ?? 0} 项已匹配`);
+  }).join("");
+}
+
+function screenshotUploadPanel(game) {
+  const upload = game.screenshot_upload;
+  if (!upload) return "";
+  const info = screenshotUploadInfo(upload);
+  return `<div class="field-section screenshot-upload ${escapeAttr(info.tone)}">
+    <div class="field-section-head">截图写入 · ${escapeHtml(info.title)}</div>
+    <p>${escapeHtml(info.detail)}</p>
+    <div class="context-metrics">
+      ${contextMetric("附件", String(upload.attachment_count ?? 0), upload.can_view_in_feishu ? "good" : "")}
+      ${contextMetric("上传", String(upload.uploaded_count ?? 0), "")}
+      ${contextMetric("复用", String(upload.reused_count ?? 0), "")}
+      ${contextMetric("失败", String(upload.failed_count ?? 0), Number(upload.failed_count ?? 0) ? "bad" : "good")}
+    </div>
+  </div>`;
+}
+
+function screenshotUploadInfo(upload) {
+  const status = upload.status || (upload.enabled ? "not_written" : "disabled");
+  if (!upload.enabled || status === "disabled") {
+    return {
+      title: "本地路径",
+      detail: `当前不会上传飞书附件；写入时只保留 ${upload.fallback_field_name || "Screenshots"} 本地路径。`,
+      tone: "",
+    };
+  }
+  if (status === "skipped_dry_run") {
+    return {
+      title: "预演跳过",
+      detail: "预演不会上传附件，正式写入并通过标签预检后才会上传到飞书附件字段。",
+      tone: "warn",
+    };
+  }
+  if (status === "blocked_taxonomy_review") {
+    return {
+      title: "标签待复核",
+      detail: "标签选项缺失或待同步，工具暂不上传截图附件，避免写入半成品记录。",
+      tone: "warn",
+    };
+  }
+  if (status === "ready") {
+    return {
+      title: upload.can_view_in_feishu ? "飞书可直接查看" : "待写入附件字段",
+      detail: `已准备 ${upload.attachment_count ?? 0} 个附件令牌，写入 ${upload.field_name || "Screenshot Attachments"} 后可在飞书表格查看。`,
+      tone: "good",
+    };
+  }
+  if (status === "partial_failed") {
+    return {
+      title: "部分失败",
+      detail: "部分截图没有上传成功；成功的附件仍会写入，失败项保留本地路径用于复核。",
+      tone: "bad",
+    };
+  }
+  return {
+    title: "待正式写入验证",
+    detail: `当前配置会上传到 ${upload.field_name || "Screenshot Attachments"}，但还没有正式写入结果。`,
+    tone: "warn",
+  };
 }
 
 function gameFieldPairs(game) {
@@ -3859,6 +3973,12 @@ function displayValue(value) {
     needs_confirmation: "需二次确认",
     blocked_type_conflict: "类型冲突",
     needs_feishu_config: "待配置飞书",
+    needs_review: "待复核",
+    taxonomy_not_synced: "待同步标签库",
+    not_written: "未写入",
+    skipped_dry_run: "预演跳过",
+    blocked_taxonomy_review: "标签阻塞",
+    disabled: "已关闭",
   };
   const key = String(value ?? "");
   return labels[key] ?? value;
@@ -3875,7 +3995,7 @@ function batchModeLabel(value) {
 
 function statusTone(value) {
   if (["collected", "ready_to_write", "updated", "written", "success", "ready_for_write_test", "ready"].includes(value)) return "good";
-  if (["partial_collected", "success_with_failures", "success_with_review", "dry_run_ready", "taxonomy_review_required", "template_ready", "cancelling", "cancelled", "needs_recovery", "empty"].includes(value)) return "warn";
+  if (["partial_collected", "success_with_failures", "success_with_review", "dry_run_ready", "taxonomy_review_required", "template_ready", "cancelling", "cancelled", "needs_recovery", "empty", "needs_review", "taxonomy_not_synced", "skipped_dry_run", "blocked_taxonomy_review", "not_written"].includes(value)) return "warn";
   if (!value || value === "missing" || value === "failed" || value === "invalid" || value === "watch") return "bad";
   return "";
 }

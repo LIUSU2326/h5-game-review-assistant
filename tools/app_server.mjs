@@ -244,7 +244,7 @@ async function buildStatus() {
     ?? (await readJsonOrNull(path.join(appRoot, "config", "run_profiles.json")))
     ?? {};
   const samples = await readSamples();
-  const games = await Promise.all(samples.map(readGameStatus));
+  const games = await Promise.all(samples.map((sample) => readGameStatus(sample, feishu)));
   const fieldsCheck = await readJsonOrNull(path.join(dataRoot, "config", "feishu_table_fields_check.json"));
   const taxonomy = await readJsonOrNull(path.join(dataRoot, "config", "taxonomy_from_feishu.json"));
   const geminiCheck = await readJsonOrNull(path.join(dataRoot, "config", "gemini_connection_check.json"));
@@ -1747,7 +1747,7 @@ function buildFieldDiagnosticsCopyText({ fields, fieldSummaryStatus, fieldDiagno
   return lines.join("\n");
 }
 
-async function readGameStatus(sample) {
+async function readGameStatus(sample, feishuConfig = {}) {
   const gameDir = path.join(dataRoot, "evidence", sample.game_id);
   const reportPath = path.join(gameDir, "report.html");
   const payloadPath = path.join(gameDir, "feishu_payload_preview.json");
@@ -1766,6 +1766,12 @@ async function readGameStatus(sample) {
   const autoplay = await readJsonOrNull(path.join(gameDir, "autoplay_manifest.json"));
   const videoManifest = await readJsonOrNull(path.join(gameDir, "video", "manifest.json"));
   const screenshotUpload = await readJsonOrNull(path.join(gameDir, "screenshot_upload_result.json"));
+  const screenshotUploadSummary = buildScreenshotUploadStatus({
+    config: feishuConfig,
+    write: writeFresh ? write : null,
+    dryRun,
+    standaloneUpload: screenshotUpload,
+  });
   const screenshots = (collection?.screenshots ?? []).map((item) => ({
     name: item,
     href: `/evidence/${encodeURIComponent(sample.game_id)}/${item.split("/").map(encodeURIComponent).join("/")}`,
@@ -1787,7 +1793,8 @@ async function readGameStatus(sample) {
     feishu_write_status: writeFresh ? (write?.status ?? "") : (dryRun?.status ?? ""),
     feishu_write_stale: Boolean(write && !writeFresh),
     record_id: writeFresh ? (write?.record_id ?? "") : "",
-    screenshot_upload_status: screenshotUpload?.status ?? "",
+    screenshot_upload: screenshotUploadSummary,
+    screenshot_upload_status: screenshotUploadSummary.status,
     video_status: videoManifest?.status ?? "",
     review: review ?? {
       status: "pending",
@@ -1802,6 +1809,40 @@ async function readGameStatus(sample) {
     payload_exists: await fileExists(payloadPath),
     report_href: `/evidence/${encodeURIComponent(sample.game_id)}/report.html`,
     payload_href: `/evidence/${encodeURIComponent(sample.game_id)}/feishu_payload_preview.json`,
+  };
+}
+
+function buildScreenshotUploadStatus({ config, write, dryRun, standaloneUpload }) {
+  const enabled = Boolean(config?.bitable?.upload_screenshots);
+  const writeSummary = write?.screenshot_upload ?? dryRun?.screenshot_upload ?? null;
+  const standaloneSummary = summarizeStandaloneScreenshotUpload(standaloneUpload);
+  const summary = writeSummary ?? standaloneSummary ?? {};
+  const status = summary.status || (enabled ? "not_written" : "disabled");
+  const attachmentCount = Number(summary.attachment_count ?? standaloneSummary?.attachment_count ?? 0);
+  return {
+    enabled,
+    status,
+    uploaded_count: Number(summary.uploaded_count ?? standaloneSummary?.uploaded_count ?? 0),
+    reused_count: Number(summary.reused_count ?? standaloneSummary?.reused_count ?? 0),
+    failed_count: Number(summary.failed_count ?? standaloneSummary?.failed_count ?? 0),
+    attachment_count: attachmentCount,
+    can_view_in_feishu: enabled && attachmentCount > 0 && ["ready", "partial_failed"].includes(status),
+    field_name: "Screenshot Attachments",
+    fallback_field_name: "Screenshots",
+    storage: standaloneUpload?.storage ?? (enabled ? "feishu_bitable_attachment" : "local_path"),
+    report_file: summary.report_file ?? "",
+  };
+}
+
+function summarizeStandaloneScreenshotUpload(upload) {
+  if (!upload) return null;
+  const files = upload.files ?? [];
+  return {
+    status: upload.status ?? "",
+    uploaded_count: files.filter((item) => item.status === "uploaded").length,
+    reused_count: files.filter((item) => item.status === "reused").length,
+    failed_count: files.filter((item) => item.status === "failed").length,
+    attachment_count: files.filter((item) => item.file_token).length,
   };
 }
 

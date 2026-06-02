@@ -1585,6 +1585,28 @@ body.lightbox-open {
   background: color-mix(in oklch, var(--red-soft) 40%, var(--surface));
 }
 
+.field-section.good {
+  border-color: color-mix(in oklch, var(--green) 34%, var(--hairline));
+  background: color-mix(in oklch, var(--green-soft) 26%, var(--surface));
+}
+
+.field-section.warn {
+  border-color: color-mix(in oklch, var(--gold) 48%, var(--hairline));
+  background: color-mix(in oklch, var(--gold-soft) 34%, var(--surface));
+}
+
+.field-section.bad {
+  border-color: color-mix(in oklch, var(--red) 45%, var(--hairline));
+  background: color-mix(in oklch, var(--red-soft) 34%, var(--surface));
+}
+
+.field-section p {
+  color: var(--body);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.45;
+}
+
 .autoplay-review-card.compact .context-metrics {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
