@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.2";
+const APP_VERSION_LABEL = "v1.8.3 rc.3";
 
 const state = {
   status: null,
@@ -1684,8 +1684,7 @@ async function saveTaxonomySuggestionReview(id, status) {
   state.taxonomyWritebackPreview = null;
   state.taxonomyWritebackResult = null;
   state.taxonomySuggestions = await fetchJson("/api/taxonomy-suggestions");
-  renderFieldConfigWorkbench();
-  renderContextPanel();
+  renderTaxonomySuggestionSurface();
 }
 
 async function buildTaxonomyWritebackPreview() {
@@ -1693,8 +1692,7 @@ async function buildTaxonomyWritebackPreview() {
     method: "POST",
     body: "{}",
   });
-  renderFieldConfigWorkbench();
-  renderContextPanel();
+  renderTaxonomySuggestionSurface();
 }
 
 async function writeTaxonomySuggestionsToFeishu() {
@@ -1706,9 +1704,20 @@ async function writeTaxonomySuggestionsToFeishu() {
     method: "POST",
     body: "{}",
   });
-  state.taxonomySuggestions = await fetchJson("/api/taxonomy-suggestions");
-  state.configWorkbench = await fetchJson("/api/config-workbench").catch(() => state.configWorkbench);
-  renderFieldConfigWorkbench();
+  const [status, taxonomySuggestions] = await Promise.all([
+    fetchJson("/api/status").catch(() => state.status),
+    fetchJson("/api/taxonomy-suggestions"),
+  ]);
+  state.status = status;
+  state.taxonomySuggestions = taxonomySuggestions;
+  renderStatus();
+  renderTaxonomySuggestionSurface();
+}
+
+function renderTaxonomySuggestionSurface() {
+  renderFieldComposerWorkbench();
+  renderRunGate();
+  renderNextStep();
   renderContextPanel();
 }
 
