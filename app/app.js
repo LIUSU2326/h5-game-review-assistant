@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.2 alpha.1";
+const APP_VERSION_LABEL = "v1.8.2 alpha.2";
 
 const state = {
   status: null,
@@ -307,16 +307,17 @@ function updateAiProviderStates(ai) {
 }
 
 async function refreshStatus() {
-  const [response, fieldComposer] = await Promise.all([
+  const [response, fieldComposer, taxonomySuggestions] = await Promise.all([
     fetchJson("/api/status"),
     fetchJson("/api/field-composer").catch(() => null),
+    fetchJson("/api/taxonomy-suggestions").catch(() => null),
   ]);
   state.status = response;
   state.configWorkbench = null;
   state.fieldComposer = fieldComposer?.composer ?? null;
   state.fieldComposerDiff = fieldComposer?.last_diff ?? null;
   state.fieldComposerApply = fieldComposer?.last_apply ?? null;
-  state.taxonomySuggestions = null;
+  state.taxonomySuggestions = taxonomySuggestions;
   if (!state.selectedGameId) {
     state.selectedGameId = response.games?.[0]?.game_id ?? "";
   }
@@ -632,6 +633,7 @@ function renderFieldComposerWorkbench() {
   const inactiveFields = composer.fields.filter((field) => !assigned.has(field.id));
   const activeCount = activeFieldRefs.length;
   const diff = state.fieldComposerDiff;
+  const suggestionWorkbench = state.taxonomySuggestions ?? {};
   root.innerHTML = `
     <div class="field-composer-head">
       <div>
@@ -665,6 +667,7 @@ function renderFieldComposerWorkbench() {
       </section>
     </div>
     ${fieldComposerDiffPanel(diff)}
+    ${taxonomySuggestionReviewPanel(suggestionWorkbench)}
   `;
   bindFieldComposerActions(root);
 }
@@ -734,6 +737,13 @@ function bindFieldComposerActions(root) {
   root.querySelector("[data-field-composer-reset]")?.addEventListener("click", resetFieldComposer);
   root.querySelector("[data-field-composer-apply]")?.addEventListener("click", applyFieldComposerSchema);
   root.querySelector("[data-field-taxonomy-sync]")?.addEventListener("click", () => startJob("taxonomy-sync"));
+  root.querySelectorAll("[data-taxonomy-review]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await saveTaxonomySuggestionReview(button.dataset.taxonomyReview, button.dataset.reviewStatus);
+    });
+  });
+  root.querySelector("[data-taxonomy-writeback-preview]")?.addEventListener("click", buildTaxonomyWritebackPreview);
+  root.querySelector("[data-taxonomy-writeback]")?.addEventListener("click", writeTaxonomySuggestionsToFeishu);
   root.querySelectorAll("[data-category-table-name]").forEach((input) => {
     input.addEventListener("input", () => {
       const category = state.fieldComposer?.categories?.find((item) => item.id === input.dataset.categoryTableName);
@@ -1387,22 +1397,30 @@ function taxonomySuggestionReviewPanel(workbench) {
   const items = workbench.items ?? [];
   const preview = state.taxonomyWritebackPreview;
   const writeback = state.taxonomyWritebackResult;
+  const acceptedActionable = Number(summary.accepted_actionable ?? 0);
+  const previewRecordCount = Number(preview?.record_count ?? 0);
+  const canWriteback = previewRecordCount > 0;
   const writebackText = writeback
     ? `飞书写回：${taxonomyWritebackStatusLabel(writeback.status)}，新建 ${writeback.created_count ?? 0}，补全 ${writeback.updated_count ?? 0}，跳过 ${writeback.skipped_count ?? 0}`
     : "真实写回只处理已接受项，写入前会查重。";
+  const previewHint = preview
+    ? `写回预览：${previewRecordCount} 条，${taxonomyPreviewStatusLabel(preview.status)}。${writebackText}`
+    : acceptedActionable
+      ? `已接受 ${acceptedActionable} 项，先生成写回预览再写回飞书。`
+      : "先接受需要补充的标签建议，再生成写回预览。";
   return `<section class="config-mini-panel taxonomy-review-panel">
     <div class="mini-panel-head">
-      <span>Suggestion Review</span>
-      <b>${escapeHtml(`${summary.pending ?? 0} 待审 / ${summary.total ?? 0} 总计`)}</b>
+      <span>标签建议复核</span>
+      <b>${escapeHtml(`${summary.pending ?? 0} 待审 / ${summary.preflight ?? 0} 预检 / ${summary.total ?? 0} 总计`)}</b>
     </div>
     <div class="taxonomy-review-list">
       ${items.slice(0, 6).map(taxonomySuggestionRow).join("") || `<div class="config-empty">暂无新增标签建议。后续 AI 认为现有标签库不够时，会显示在这里。</div>`}
     </div>
     <div class="taxonomy-preview-actions">
-      <span>${escapeHtml(preview ? `写回预览：${preview.record_count ?? 0} 条，${taxonomyPreviewStatusLabel(preview.status)}。${writebackText}` : "写回预览只生成本地 JSON，不修改飞书。")}</span>
+      <span>${escapeHtml(previewHint)}</span>
       <div class="button-row">
         <button class="button" data-taxonomy-writeback-preview type="button">生成写回预览</button>
-        <button class="button primary" data-taxonomy-writeback type="button">写回飞书</button>
+        <button class="button primary" data-taxonomy-writeback type="button" ${canWriteback ? "" : "disabled"}>写回飞书</button>
       </div>
     </div>
   </section>`;
@@ -1426,10 +1444,10 @@ function taxonomySuggestionRow(item) {
     : `<span class="taxonomy-existing">已有选项：${escapeHtml(item.existing_option_id)}</span>`;
   return `<article class="taxonomy-review-row ${escapeAttr(statusTone)}">
     <div class="taxonomy-review-main">
-      <span>${escapeHtml(item.field)} · ${escapeHtml(item.language)}</span>
+      <span>${escapeHtml(taxonomySuggestionSourceLabel(item.source))} · ${escapeHtml(taxonomySuggestionCategoryLabel(item))} · ${escapeHtml(item.language)}</span>
       <b>${escapeHtml(item.suggestion)}</b>
       <p>${escapeHtml(item.reason || games || "无补充说明")}</p>
-      <small>${escapeHtml(games || "未关联游戏")}</small>
+      <small>${escapeHtml(`${item.field || "-"} · ${games || "未关联游戏"}`)}</small>
     </div>
     <div class="taxonomy-review-side">
       ${pill(taxonomyReviewStatusLabel(item.review_status), statusTone)}
@@ -1438,11 +1456,40 @@ function taxonomySuggestionRow(item) {
   </article>`;
 }
 
+function taxonomySuggestionSourceLabel(source) {
+  if (source === "taxonomy_preflight") return "预检缺失";
+  if (source === "ai") return "AI 建议";
+  return source || "建议";
+}
+
+function taxonomySuggestionCategoryLabel(item) {
+  if (item.category_label_zh) return item.category_label_zh;
+  return taxonomyCategoryLabel(item.category || taxonomyCategoryFromFieldName(item.field)) || item.field || "标签";
+}
+
+function taxonomyCategoryFromFieldName(fieldName) {
+  const key = String(fieldName ?? "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  const categories = {
+    audience: "audiences",
+    target_audience: "audiences",
+    game_type: "gameplay_types",
+    sub_type: "gameplay_types",
+    subgenre: "gameplay_types",
+    theme: "themes",
+    art_style: "art_styles",
+    feature_tags: "feature_tags",
+    controls: "controls",
+  };
+  return categories[key] || "";
+}
+
 async function saveTaxonomySuggestionReview(id, status) {
   await fetchJson("/api/taxonomy-suggestions/review", {
     method: "POST",
     body: JSON.stringify({ id, status }),
   });
+  state.taxonomyWritebackPreview = null;
+  state.taxonomyWritebackResult = null;
   state.taxonomySuggestions = await fetchJson("/api/taxonomy-suggestions");
   renderFieldConfigWorkbench();
   renderContextPanel();

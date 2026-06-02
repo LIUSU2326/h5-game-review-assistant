@@ -1278,8 +1278,10 @@ async function buildTaxonomySuggestionWorkbench() {
     total: merged.length,
     pending: merged.filter((item) => item.review_status === "pending").length,
     accepted: merged.filter((item) => item.review_status === "accepted").length,
+    accepted_actionable: merged.filter((item) => item.review_status === "accepted" && item.is_actionable).length,
     rejected: merged.filter((item) => item.review_status === "rejected").length,
     needs_info: merged.filter((item) => item.review_status === "needs_info").length,
+    preflight: merged.filter((item) => item.source === "taxonomy_preflight").length,
     games: new Set(merged.flatMap((item) => item.games.map((game) => game.game_id))).size,
   };
   return {
@@ -1302,9 +1304,11 @@ async function collectTaxonomySuggestions() {
     const gameDir = path.join(evidenceDir, gameId);
     const en = await readJsonOrNull(path.join(gameDir, "ai_eval.en.json"));
     const zh = await readJsonOrNull(path.join(gameDir, "ai_eval.zh.json"));
+    const preview = await readJsonOrNull(path.join(gameDir, "feishu_payload_preview.json"));
     const candidates = [
       ...normalizeEnTaxonomySuggestions(en?.result?.taxonomy_new_suggestions ?? []),
       ...normalizeZhTaxonomySuggestions(zh?.result ?? {}),
+      ...normalizePreflightTaxonomySuggestions(preview?.taxonomy_preflight),
     ];
     for (const candidate of candidates) {
       if (!candidate.suggestion) continue;
@@ -1333,6 +1337,7 @@ function normalizeEnTaxonomySuggestions(items) {
       suggestion: item.suggestion ?? "",
       reason: item.reason ?? "",
       language: "en",
+      source: item.source ?? "ai",
       is_actionable: true,
     }));
 }
@@ -1346,16 +1351,31 @@ function normalizeZhTaxonomySuggestions(result) {
       suggestion: item.suggestion ?? item.name_zh ?? item.id ?? "",
       reason: item.reason ?? "",
       language: "zh",
+      source: "ai",
       is_actionable: !item.id,
       existing_option_id: item.id ?? "",
     }));
   });
 }
 
+function normalizePreflightTaxonomySuggestions(preflight) {
+  const missing = preflight?.missing_options ?? [];
+  return missing.map((item) => ({
+    field: item.field_name ?? item.field ?? "",
+    suggestion: item.suggestion ?? item.option ?? "",
+    reason: `飞书标签库缺少 ${item.category_label_zh || taxonomyCategoryDisplayName(item.category)} 选项，来源于写入预检。`,
+    language: "en",
+    source: "taxonomy_preflight",
+    category: item.category ?? "",
+    category_label_zh: item.category_label_zh ?? "",
+    is_actionable: true,
+  }));
+}
+
 function taxonomySuggestionId(item) {
   return crypto
     .createHash("sha1")
-    .update([item.language, item.field, item.suggestion, item.reason].join("\n"))
+    .update([item.language, taxonomyCategoryForField(item.field) || item.category || item.field, item.suggestion, item.source || "", item.reason].join("\n"))
     .digest("hex")
     .slice(0, 16);
 }
@@ -1481,7 +1501,7 @@ async function writeAcceptedTaxonomySuggestionsToFeishu() {
 }
 
 function taxonomySuggestionToRecord(item, allItems = []) {
-  const category = taxonomyCategoryForField(item.field);
+  const category = item.category || taxonomyCategoryForField(item.field);
   if (!category) return null;
   const paired = pairedTaxonomySuggestion(item, allItems);
   const nameEn = item.language === "en" ? item.suggestion : paired?.language === "en" ? paired.suggestion : "";
@@ -1506,11 +1526,11 @@ function taxonomySuggestionToRecord(item, allItems = []) {
 }
 
 function pairedTaxonomySuggestion(item, allItems) {
-  const category = taxonomyCategoryForField(item.field);
+  const category = item.category || taxonomyCategoryForField(item.field);
   const sameSource = (candidate) => {
     if (candidate.id === item.id) return false;
     if (!candidate.is_actionable) return false;
-    if (taxonomyCategoryForField(candidate.field) !== category) return false;
+    if ((candidate.category || taxonomyCategoryForField(candidate.field)) !== category) return false;
     if (candidate.language === item.language) return false;
     if (!sameGameSet(candidate.games ?? [], item.games ?? [])) return false;
     if (item.language === "en") return candidate.language === "zh" && containsCjk(candidate.suggestion);
@@ -1672,7 +1692,7 @@ function createFeishuError(prefix, responseJson) {
 }
 
 function taxonomyCategoryForField(field) {
-  const normalized = String(field ?? "").toLowerCase();
+  const normalized = String(field ?? "").trim().toLowerCase().replace(/[-\s]+/g, "_");
   if (["audience", "target_audience"].includes(normalized)) return "audiences";
   if (["game_type", "sub_type", "subgenre"].includes(normalized)) return "gameplay_types";
   if (normalized === "theme") return "themes";
@@ -1680,6 +1700,17 @@ function taxonomyCategoryForField(field) {
   if (normalized === "feature_tags") return "feature_tags";
   if (normalized === "controls") return "controls";
   return "";
+}
+
+function taxonomyCategoryDisplayName(category) {
+  return {
+    audiences: "人群",
+    gameplay_types: "玩法",
+    themes: "题材",
+    art_styles: "画风",
+    feature_tags: "特色标签",
+    controls: "操作",
+  }[category] || category || "标签";
 }
 
 function slugifyOption(value) {
