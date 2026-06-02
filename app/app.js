@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.1";
+const APP_VERSION_LABEL = "v1.8.3 rc.2";
 
 const state = {
   status: null,
@@ -1188,7 +1188,7 @@ function buildExperienceTestReadiness() {
   const blocking = rows.filter((item) => item.tone === "bad").length;
   const warnings = rows.filter((item) => item.tone === "warn").length;
   const passed = rows.filter((item) => item.tone === "good").length;
-  return {
+  const readiness = {
     tone: blocking ? "bad" : warnings ? "warn" : "good",
     title: blocking ? "先处理阻塞项" : warnings ? "可以小范围试跑" : "可以开始体验测试",
     detail: latestRun
@@ -1200,10 +1200,35 @@ function buildExperienceTestReadiness() {
     total: rows.length,
     rows,
   };
+  readiness.copyText = buildExperienceReadinessCopyText(readiness);
+  return readiness;
 }
 
 function readinessItem(tone, title, detail, action = null) {
   return { tone, title, detail, action };
+}
+
+function buildExperienceReadinessCopyText(readiness) {
+  const lines = [
+    "H5 游戏评测助手体验测试摘要",
+    `版本：${APP_VERSION_LABEL}`,
+    `生成时间：${formatDateTime(new Date().toISOString())}`,
+    `结论：${readiness.title}`,
+    `说明：${readiness.detail}`,
+    `状态：阻塞 ${readiness.blocking} / 待观察 ${readiness.warnings} / 通过 ${readiness.passed}/${readiness.total}`,
+  ];
+  for (const [groupLabel, tone] of [["阻塞项", "bad"], ["待观察项", "warn"], ["已通过项", "good"]]) {
+    const rows = readiness.rows.filter((item) => item.tone === tone);
+    lines.push("");
+    lines.push(`${groupLabel}：${rows.length ? "" : "无"}`);
+    for (const item of rows) {
+      const action = item.action?.label ? `；建议动作：${item.action.label}` : "";
+      lines.push(`- ${item.title}：${item.detail}${action}`);
+    }
+  }
+  lines.push("");
+  lines.push("反馈建议：先跑 1 款真实链接，再预演小批量；只记录真实卡点，不新增无关功能。");
+  return lines.join("\n");
 }
 
 function renderStorageGuide() {
@@ -2889,6 +2914,9 @@ function experienceTestReadinessPanel(readiness) {
       ${contextMetric("待观察", readiness.warnings, readiness.warnings ? "warn" : "good")}
       ${contextMetric("通过", `${readiness.passed}/${readiness.total}`, readiness.blocking ? "warn" : "good")}
     </div>
+    <div class="readiness-actions">
+      <button class="button small" data-copy-experience-readiness type="button">复制测试摘要</button>
+    </div>
     <div class="context-list">
       ${visibleRows.map(experienceReadinessRow).join("") || contextEmpty("没有阻塞和待观察项，可以开始体验测试。")}
       ${passSummary}
@@ -3497,6 +3525,11 @@ function bindContextPanelActions() {
   elements.detailPanel?.querySelectorAll("[data-copy-autoplay-preflight]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       await copyTextButton(event.currentTarget, buildAutoplayPreflight().copyText, "复制预检摘要");
+    });
+  });
+  elements.detailPanel?.querySelectorAll("[data-copy-experience-readiness]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      await copyTextButton(event.currentTarget, buildExperienceTestReadiness().copyText, "复制测试摘要");
     });
   });
   $("[data-export-evidence]")?.addEventListener("click", () => exportEvidencePackage(game?.game_id));

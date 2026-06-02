@@ -1308,6 +1308,11 @@ textarea:focus-visible {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.readiness-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .readiness-row.good {
   background: var(--green-soft);
   border-color: #b4d3b6;
