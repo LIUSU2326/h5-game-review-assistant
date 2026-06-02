@@ -282,6 +282,8 @@ async function buildStatus() {
         upload_screenshots: Boolean(feishu?.bitable?.upload_screenshots),
         fields_status: fieldsCheck?.status ?? "",
         fields_missing: fieldsCheck?.missing_fields?.length ?? 0,
+        fields_type_warnings: fieldsCheck?.type_warnings?.length ?? 0,
+        fields_type_warning_names: (fieldsCheck?.type_warnings ?? []).map((item) => item.field_name).filter(Boolean),
       },
       taxonomy: {
         status: taxonomy?.status ?? "",

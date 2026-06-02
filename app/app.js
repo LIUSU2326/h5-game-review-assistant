@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 beta.3";
+const APP_VERSION_LABEL = "v1.8.3 rc.1";
 
 const state = {
   status: null,
@@ -662,6 +662,7 @@ function renderFieldComposerWorkbench() {
       </div>
     </div>
     ${fieldComposerTaxonomyStrip()}
+    ${fieldComposerCompatibilityStrip()}
     <div class="field-composer-stats">
       ${fieldComposerStat("分类表", composer.categories.length)}
       ${fieldComposerStat("写入字段", activeCount)}
@@ -746,11 +747,21 @@ function fieldTypeOptions(current) {
 }
 
 function bindFieldComposerActions(root) {
-  root.querySelector("[data-field-composer-save]")?.addEventListener("click", () => saveFieldComposer());
-  root.querySelector("[data-field-composer-diff]")?.addEventListener("click", checkFieldComposerDiff);
-  root.querySelector("[data-field-composer-reset]")?.addEventListener("click", resetFieldComposer);
-  root.querySelector("[data-field-composer-apply]")?.addEventListener("click", applyFieldComposerSchema);
-  root.querySelector("[data-field-taxonomy-sync]")?.addEventListener("click", () => startJob("taxonomy-sync"));
+  root.querySelectorAll("[data-field-composer-save]").forEach((button) => {
+    button.addEventListener("click", () => saveFieldComposer());
+  });
+  root.querySelectorAll("[data-field-composer-diff]").forEach((button) => {
+    button.addEventListener("click", checkFieldComposerDiff);
+  });
+  root.querySelectorAll("[data-field-composer-reset]").forEach((button) => {
+    button.addEventListener("click", resetFieldComposer);
+  });
+  root.querySelectorAll("[data-field-composer-apply]").forEach((button) => {
+    button.addEventListener("click", applyFieldComposerSchema);
+  });
+  root.querySelectorAll("[data-field-taxonomy-sync]").forEach((button) => {
+    button.addEventListener("click", () => startJob("taxonomy-sync"));
+  });
   root.querySelectorAll("[data-taxonomy-review]").forEach((button) => {
     button.addEventListener("click", async () => {
       await saveTaxonomySuggestionReview(button.dataset.taxonomyReview, button.dataset.reviewStatus);
@@ -840,6 +851,21 @@ function fieldComposerTaxonomyStrip() {
       <small>${escapeHtml(detailText)}</small>
     </div>
     <button class="button small" data-field-taxonomy-sync type="button">同步标签库</button>
+  </div>`;
+}
+
+function fieldComposerCompatibilityStrip() {
+  const feishu = state.status?.config?.feishu ?? {};
+  const warningCount = Number(feishu.fields_type_warnings ?? 0);
+  if (!warningCount) return "";
+  const names = (feishu.fields_type_warning_names ?? []).filter(Boolean).slice(0, 3).join("、") || "旧主表字段";
+  return `<div class="field-taxonomy-strip warn">
+    <div>
+      <span>旧主表兼容提醒</span>
+      <b>${escapeHtml(`${warningCount} 个类型提醒`)}</b>
+      <small>${escapeHtml(`${names} 在旧评测主表里类型不同。v1.8 新写入以字段编排分类表为准；如果继续写旧主表，需要人工调整字段类型。`)}</small>
+    </div>
+    <button class="button small" data-field-composer-diff type="button">检查分类表</button>
   </div>`;
 }
 
