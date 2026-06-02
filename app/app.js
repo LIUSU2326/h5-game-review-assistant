@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.6";
+const APP_VERSION_LABEL = "v1.8.3 rc.7";
 
 const state = {
   status: null,
@@ -1713,10 +1713,6 @@ async function buildTaxonomyWritebackPreview() {
 
 async function writeTaxonomySuggestionsToFeishu() {
   state.taxonomyWritebackResult = await fetchJson("/api/taxonomy-suggestions/writeback", {
-    method: "POST",
-    body: "{}",
-  });
-  state.taxonomyWritebackPreview = await fetchJson("/api/taxonomy-suggestions/writeback-preview", {
     method: "POST",
     body: "{}",
   });
