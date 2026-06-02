@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.3";
+const APP_VERSION_LABEL = "v1.8.3 rc.4";
 
 const state = {
   status: null,
@@ -1592,6 +1592,7 @@ function taxonomySuggestionReviewPanel(workbench) {
   const writeback = state.taxonomyWritebackResult;
   const acceptedActionable = Number(summary.accepted_actionable ?? 0);
   const previewRecordCount = Number(preview?.record_count ?? 0);
+  const canPreview = acceptedActionable > 0;
   const canWriteback = previewRecordCount > 0;
   const writebackText = writeback
     ? `飞书写回：${taxonomyWritebackStatusLabel(writeback.status)}，新建 ${writeback.created_count ?? 0}，补全 ${writeback.updated_count ?? 0}，跳过 ${writeback.skipped_count ?? 0}`
@@ -1604,7 +1605,7 @@ function taxonomySuggestionReviewPanel(workbench) {
   return `<section class="config-mini-panel taxonomy-review-panel" id="taxonomySuggestionReview">
     <div class="mini-panel-head">
       <span>标签建议复核</span>
-      <b>${escapeHtml(`${summary.pending ?? 0} 待审 / ${summary.preflight ?? 0} 预检 / ${summary.total ?? 0} 总计`)}</b>
+      <b>${escapeHtml(`${summary.pending ?? 0} 待审 / ${acceptedActionable} 已接受 / ${summary.total ?? 0} 总计`)}</b>
     </div>
     <div class="taxonomy-review-list">
       ${items.slice(0, 6).map(taxonomySuggestionRow).join("") || `<div class="config-empty">暂无新增标签建议。后续 AI 认为现有标签库不够时，会显示在这里。</div>`}
@@ -1612,7 +1613,7 @@ function taxonomySuggestionReviewPanel(workbench) {
     <div class="taxonomy-preview-actions">
       <span>${escapeHtml(previewHint)}</span>
       <div class="button-row">
-        <button class="button" data-taxonomy-writeback-preview type="button">生成写回预览</button>
+        <button class="button" data-taxonomy-writeback-preview type="button" ${canPreview ? "" : "disabled"}>生成写回预览</button>
         <button class="button primary" data-taxonomy-writeback type="button" ${canWriteback ? "" : "disabled"}>写回飞书</button>
       </div>
     </div>
