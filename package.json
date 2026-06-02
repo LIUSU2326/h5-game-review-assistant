@@ -1,6 +1,6 @@
 {
   "name": "h5-game-eval-poc",
-  "version": "1.8.3-rc.8",
+  "version": "1.8.3-rc.9",
   "description": "Local H5 game evaluation assistant with browser evidence, Gemini review, and Feishu Bitable export.",
   "author": "Local POC",
   "private": true,
