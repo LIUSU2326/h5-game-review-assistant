@@ -1266,6 +1266,10 @@ function sha256(text) {
 
 async function buildTaxonomySuggestionWorkbench() {
   const reviews = (await readJsonOrNull(taxonomySuggestionReviewPath)) ?? { items: {} };
+  const [writebackPreview, writebackResult] = await Promise.all([
+    readJsonOrNull(taxonomyWritebackPreviewPath),
+    readJsonOrNull(taxonomyWritebackResultPath),
+  ]);
   const suggestions = await collectTaxonomySuggestions();
   const merged = suggestions.map((item) => {
     const review = reviews.items?.[item.id] ?? {};
@@ -1290,6 +1294,8 @@ async function buildTaxonomySuggestionWorkbench() {
     generated_at: new Date().toISOString(),
     summary,
     items: merged,
+    writeback_preview: writebackPreview,
+    writeback_result: writebackResult,
   };
 }
 
@@ -1397,10 +1403,12 @@ async function saveTaxonomySuggestionReview(body) {
   };
   await fs.mkdir(path.dirname(taxonomySuggestionReviewPath), { recursive: true });
   await fs.writeFile(taxonomySuggestionReviewPath, `${JSON.stringify(reviews, null, 2)}\n`, "utf8");
+  await clearTaxonomyWritebackDraft();
   return { status: "saved", item: { id, ...reviews.items[id] } };
 }
 
 async function buildTaxonomyWritebackPreview() {
+  await fs.rm(taxonomyWritebackResultPath, { force: true }).catch(() => null);
   const workbench = await buildTaxonomySuggestionWorkbench();
   const accepted = (workbench.items ?? []).filter((item) => item.review_status === "accepted" && item.is_actionable);
   const records = accepted.map((item) => taxonomySuggestionToRecord(item, workbench.items ?? [])).filter(Boolean);
@@ -1415,6 +1423,13 @@ async function buildTaxonomyWritebackPreview() {
   await fs.mkdir(path.dirname(taxonomyWritebackPreviewPath), { recursive: true });
   await fs.writeFile(taxonomyWritebackPreviewPath, `${JSON.stringify(preview, null, 2)}\n`, "utf8");
   return preview;
+}
+
+async function clearTaxonomyWritebackDraft() {
+  await Promise.all([
+    fs.rm(taxonomyWritebackPreviewPath, { force: true }).catch(() => null),
+    fs.rm(taxonomyWritebackResultPath, { force: true }).catch(() => null),
+  ]);
 }
 
 async function writeAcceptedTaxonomySuggestionsToFeishu() {

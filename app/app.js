@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.5";
+const APP_VERSION_LABEL = "v1.8.3 rc.6";
 
 const state = {
   status: null,
@@ -323,6 +323,8 @@ async function refreshStatus() {
   state.fieldComposerDiff = fieldComposer?.last_diff ?? null;
   state.fieldComposerApply = fieldComposer?.last_apply ?? null;
   state.taxonomySuggestions = taxonomySuggestions;
+  state.taxonomyWritebackPreview = taxonomySuggestions?.writeback_preview ?? null;
+  state.taxonomyWritebackResult = taxonomySuggestions?.writeback_result ?? null;
   if (!state.selectedGameId) {
     state.selectedGameId = response.games?.[0]?.game_id ?? "";
   }
@@ -1705,6 +1707,7 @@ async function buildTaxonomyWritebackPreview() {
     method: "POST",
     body: "{}",
   });
+  state.taxonomyWritebackResult = null;
   renderTaxonomySuggestionSurface();
 }
 
@@ -1723,6 +1726,8 @@ async function writeTaxonomySuggestionsToFeishu() {
   ]);
   state.status = status;
   state.taxonomySuggestions = taxonomySuggestions;
+  state.taxonomyWritebackPreview = taxonomySuggestions?.writeback_preview ?? state.taxonomyWritebackPreview;
+  state.taxonomyWritebackResult = taxonomySuggestions?.writeback_result ?? state.taxonomyWritebackResult;
   renderStatus();
   renderTaxonomySuggestionSurface();
 }
