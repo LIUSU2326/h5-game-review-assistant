@@ -17,19 +17,23 @@ const payload = await readJson(payloadPath, `Missing ${payloadPath}. Run npm.cmd
 const tableConfig = config?.bitable?.tables?.evaluation_results ?? {};
 const appToken = config?.bitable?.app_token;
 const tableId = tableConfig.table_id;
+const categoryRecords = Array.isArray(payload.category_records) ? payload.category_records.filter((record) => record?.table_name) : [];
 
 const report = {
   generated_at: new Date().toISOString(),
   mode: apply ? "apply" : "dry_run",
+  write_mode: categoryRecords.length ? "field_composer_categories" : "legacy_single_table",
   status: "unknown",
   game_id: gameId,
   table_id: tableId || "",
   field_count: 0,
   missing_fields: [],
+  missing_tables: [],
   record_id: "",
   record_url: "",
   matched_existing_record_id: "",
   action: "",
+  category_results: [],
   screenshot_upload: {
     enabled: Boolean(config?.bitable?.upload_screenshots),
     status: Boolean(config?.bitable?.upload_screenshots) ? "pending" : "disabled",
@@ -37,52 +41,19 @@ const report = {
     reused_count: 0,
     failed_count: 0,
   },
+  taxonomy_preflight: payload.taxonomy_preflight ?? null,
 };
 
 try {
-  assertConfig(config, appToken, tableId);
+  if (categoryRecords.length) assertBaseConfig(config, appToken);
+  else assertConfig(config, appToken, tableId);
   const tenantToken = await getTenantAccessToken(config.app_id, config.app_secret);
-  const remoteFields = await listFields(tenantToken, appToken, tableId);
-  const remoteByName = new Map(remoteFields.map((field) => [field.field_name, field]));
-  const rawFields = { ...(payload.record?.fields ?? {}) };
-  if (config?.bitable?.upload_screenshots && apply) {
-    const uploadReport = await uploadScreenshotAttachments(tenantToken, appToken, rawFields);
-    report.screenshot_upload = summarizeScreenshotUpload(uploadReport);
-    rawFields["Screenshot Attachments"] = uploadReport.files
-      .filter((item) => item.status === "uploaded" || item.status === "reused")
-      .map((item) => ({ file_token: item.file_token }));
-  } else if (config?.bitable?.upload_screenshots) {
-    report.screenshot_upload.status = "skipped_dry_run";
-    delete rawFields["Screenshot Attachments"];
-  } else {
-    delete rawFields["Screenshot Attachments"];
-  }
-  const missingFields = Object.keys(rawFields).filter((fieldName) => !remoteByName.has(fieldName));
-  report.missing_fields = missingFields;
+  const taxonomyBlocked = shouldBlockForTaxonomyReview(payload.taxonomy_preflight);
 
-  if (missingFields.length) {
-    report.status = "missing_fields";
+  if (categoryRecords.length) {
+    await writeCategoryRecords(tenantToken, appToken, categoryRecords, taxonomyBlocked);
   } else {
-    const fields = {};
-    for (const [fieldName, value] of Object.entries(rawFields)) {
-      fields[fieldName] = normalizeValueForRemoteField(value, remoteByName.get(fieldName));
-    }
-    report.field_count = Object.keys(fields).length;
-    const existingRecord = forceCreate ? null : await findExistingRecord(tenantToken, appToken, tableId, rawFields);
-    report.matched_existing_record_id = existingRecord?.record_id ?? "";
-    report.action = existingRecord ? "update" : "create";
-
-    if (apply) {
-      const record = existingRecord
-        ? await updateRecord(tenantToken, appToken, tableId, existingRecord.record_id, fields)
-        : await createRecord(tenantToken, appToken, tableId, fields);
-      report.status = existingRecord ? "updated" : "written";
-      report.record_id = record.record_id ?? record.id ?? "";
-      report.record_url = record.record_url ?? record.url ?? "";
-    } else {
-      report.status = "dry_run_ready";
-      report.preview = { fields };
-    }
+    await writeLegacyRecord(tenantToken, appToken, tableId, taxonomyBlocked);
   }
 } catch (error) {
   report.status = "failed";
@@ -100,6 +71,9 @@ console.log(`Fields: ${report.field_count}`);
 if (report.record_id) console.log(`Record ID: ${report.record_id}`);
 if (report.action) console.log(`Action: ${report.action}`);
 if (report.missing_fields.length) console.log(`Missing fields: ${report.missing_fields.length}`);
+if (report.missing_tables.length) console.log(`Missing tables: ${report.missing_tables.length}`);
+if (report.taxonomy_preflight?.missing_options?.length) console.log(`Taxonomy missing options: ${report.taxonomy_preflight.missing_options.length}`);
+if (apply && !["written", "updated"].includes(report.status)) process.exitCode = 1;
 
 function parseArgs(rawArgs) {
   const parsed = {};
@@ -132,11 +106,22 @@ async function readJson(filePath, missingMessage) {
 }
 
 function assertConfig(configSource, configAppToken, configTableId) {
+  assertBaseConfig(configSource, configAppToken);
+  if (!configTableId) throw new Error("evaluation_results.table_id is missing in config/feishu.local.json.");
+}
+
+function assertBaseConfig(configSource, configAppToken) {
   if (!configSource?.app_id || !configSource?.app_secret) {
     throw new Error("app_id or app_secret is missing in config/feishu.local.json.");
   }
   if (!configAppToken) throw new Error("bitable.app_token is missing in config/feishu.local.json.");
-  if (!configTableId) throw new Error("evaluation_results.table_id is missing in config/feishu.local.json.");
+}
+
+function shouldBlockForTaxonomyReview(preflight) {
+  if (!preflight) return false;
+  if (preflight.status === "ready") return false;
+  if ((preflight.missing_options ?? []).length > 0) return true;
+  return preflight.status === "taxonomy_not_synced";
 }
 
 async function getTenantAccessToken(appId, appSecret) {
@@ -148,6 +133,167 @@ async function getTenantAccessToken(appId, appSecret) {
   const json = await response.json();
   if (!response.ok || json.code !== 0) throw createFeishuError("Failed to get tenant_access_token", json);
   return json.tenant_access_token;
+}
+
+async function writeLegacyRecord(tenantToken, configAppToken, configTableId, taxonomyBlocked) {
+  const remoteFields = await listFields(tenantToken, configAppToken, configTableId);
+  const remoteByName = new Map(remoteFields.map((field) => [field.field_name, field]));
+  const rawFields = { ...(payload.record?.fields ?? {}) };
+  await prepareScreenshotAttachmentField(tenantToken, configAppToken, rawFields, taxonomyBlocked);
+  const missingFields = Object.keys(rawFields).filter((fieldName) => !remoteByName.has(fieldName));
+  report.missing_fields = missingFields;
+
+  if (missingFields.length) {
+    report.status = "missing_fields";
+    return;
+  }
+  if (taxonomyBlocked) {
+    report.status = "taxonomy_review_required";
+    report.action = "blocked";
+    report.preview = { fields: rawFields };
+    return;
+  }
+
+  const fields = {};
+  for (const [fieldName, value] of Object.entries(rawFields)) {
+    fields[fieldName] = normalizeValueForRemoteField(value, remoteByName.get(fieldName));
+  }
+  report.field_count = Object.keys(fields).length;
+  const existingRecord = forceCreate ? null : await findExistingRecord(tenantToken, configAppToken, configTableId, rawFields);
+  report.matched_existing_record_id = existingRecord?.record_id ?? "";
+  report.action = existingRecord ? "update" : "create";
+
+  if (apply) {
+    const record = existingRecord
+      ? await updateRecord(tenantToken, configAppToken, configTableId, existingRecord.record_id, fields)
+      : await createRecord(tenantToken, configAppToken, configTableId, fields);
+    report.status = existingRecord ? "updated" : "written";
+    report.record_id = record.record_id ?? record.id ?? "";
+    report.record_url = record.record_url ?? record.url ?? "";
+  } else {
+    report.status = "dry_run_ready";
+    report.preview = { fields };
+  }
+}
+
+async function writeCategoryRecords(tenantToken, configAppToken, records, taxonomyBlocked) {
+  const remoteTables = await listTables(tenantToken, configAppToken);
+  const tableByName = new Map(remoteTables.map((table) => [normalizeComparable(table.name), table]));
+  for (const categoryRecord of records) {
+    const item = {
+      category_id: categoryRecord.category_id ?? "",
+      table_name: categoryRecord.table_name,
+      table_id: "",
+      status: "pending",
+      action: "",
+      field_count: 0,
+      missing_fields: [],
+      record_id: "",
+      record_url: "",
+      matched_existing_record_id: "",
+    };
+    report.category_results.push(item);
+    const table = tableByName.get(normalizeComparable(categoryRecord.table_name));
+    if (!table?.table_id) {
+      item.status = "missing_table";
+      report.missing_tables.push(categoryRecord.table_name);
+      continue;
+    }
+    item.table_id = table.table_id;
+
+    const remoteFields = await listFields(tenantToken, configAppToken, table.table_id);
+    const remoteByName = new Map(remoteFields.map((field) => [field.field_name, field]));
+    const rawFields = { ...(categoryRecord.fields ?? {}) };
+    await prepareScreenshotAttachmentField(tenantToken, configAppToken, rawFields, taxonomyBlocked);
+    const missingFields = Object.keys(rawFields).filter((fieldName) => !remoteByName.has(fieldName));
+    item.missing_fields = missingFields;
+    report.missing_fields.push(...missingFields.map((fieldName) => `${categoryRecord.table_name}/${fieldName}`));
+
+    if (missingFields.length) {
+      item.status = "missing_fields";
+      continue;
+    }
+    if (taxonomyBlocked) {
+      item.status = "taxonomy_review_required";
+      item.action = "blocked";
+      item.preview = { fields: rawFields };
+      continue;
+    }
+
+    const fields = {};
+    for (const [fieldName, value] of Object.entries(rawFields)) {
+      fields[fieldName] = normalizeValueForRemoteField(value, remoteByName.get(fieldName));
+    }
+    item.field_count = Object.keys(fields).length;
+    report.field_count += item.field_count;
+    const existingRecord = forceCreate ? null : await findExistingRecord(tenantToken, configAppToken, table.table_id, rawFields);
+    item.matched_existing_record_id = existingRecord?.record_id ?? "";
+    item.action = existingRecord ? "update" : "create";
+
+    if (apply) {
+      const record = existingRecord
+        ? await updateRecord(tenantToken, configAppToken, table.table_id, existingRecord.record_id, fields)
+        : await createRecord(tenantToken, configAppToken, table.table_id, fields);
+      item.status = existingRecord ? "updated" : "written";
+      item.record_id = record.record_id ?? record.id ?? "";
+      item.record_url = record.record_url ?? record.url ?? "";
+      report.record_id ||= item.record_id;
+      report.record_url ||= item.record_url;
+    } else {
+      item.status = "dry_run_ready";
+      item.preview = { fields };
+    }
+  }
+
+  const statuses = new Set(report.category_results.map((item) => item.status));
+  if (statuses.has("missing_table") || statuses.has("missing_fields")) report.status = "missing_fields";
+  else if (statuses.has("taxonomy_review_required")) {
+    report.status = "taxonomy_review_required";
+    report.action = "blocked";
+  } else if (statuses.has("failed")) report.status = "failed";
+  else if (!apply) report.status = "dry_run_ready";
+  else if ([...statuses].every((status) => status === "updated")) report.status = "updated";
+  else report.status = "written";
+  report.action = report.action || "category_records";
+}
+
+async function prepareScreenshotAttachmentField(tenantToken, configAppToken, rawFields, taxonomyBlocked) {
+  if (!Object.hasOwn(rawFields, "Screenshot Attachments")) return;
+  if (config?.bitable?.upload_screenshots && apply && !taxonomyBlocked) {
+    const uploadReport = await uploadScreenshotAttachments(tenantToken, configAppToken, rawFields);
+    report.screenshot_upload = summarizeScreenshotUpload(uploadReport);
+    rawFields["Screenshot Attachments"] = uploadReport.files
+      .filter((item) => item.status === "uploaded" || item.status === "reused")
+      .map((item) => ({ file_token: item.file_token }));
+  } else if (config?.bitable?.upload_screenshots && apply && taxonomyBlocked) {
+    report.screenshot_upload.status = "blocked_taxonomy_review";
+    delete rawFields["Screenshot Attachments"];
+  } else if (config?.bitable?.upload_screenshots) {
+    report.screenshot_upload.status = "skipped_dry_run";
+    delete rawFields["Screenshot Attachments"];
+  } else {
+    delete rawFields["Screenshot Attachments"];
+  }
+}
+
+async function listTables(accessToken, configAppToken) {
+  const tables = [];
+  let pageToken = "";
+  do {
+    const url = new URL(`https://open.feishu.cn/open-apis/bitable/v1/apps/${encodeURIComponent(configAppToken)}/tables`);
+    url.searchParams.set("page_size", "100");
+    if (pageToken) url.searchParams.set("page_token", pageToken);
+    const response = await feishuFetch(url, accessToken, "GET");
+    const json = await response.json();
+    if (!response.ok || json.code !== 0) throw createFeishuError("Failed to list Bitable tables", json);
+    tables.push(...(json.data?.items ?? []).map((table) => ({
+      ...table,
+      table_id: table.table_id ?? table.id ?? "",
+      name: table.name ?? table.table_name ?? "",
+    })));
+    pageToken = json.data?.has_more ? json.data?.page_token ?? "" : "";
+  } while (pageToken);
+  return tables;
 }
 
 async function listFields(accessToken, configAppToken, configTableId) {

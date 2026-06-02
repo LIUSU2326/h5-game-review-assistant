@@ -1,8 +1,11 @@
-const APP_VERSION_LABEL = "v1.6";
+const APP_VERSION_LABEL = "v1.8 alpha";
 
 const state = {
   status: null,
   configWorkbench: null,
+  fieldComposer: null,
+  fieldComposerDiff: null,
+  fieldComposerApply: null,
   taxonomySuggestions: null,
   taxonomyWritebackPreview: null,
   taxonomyWritebackResult: null,
@@ -38,7 +41,15 @@ const elements = {
   metricShots: $("#metricShots"),
   metricVideos: $("#metricVideos"),
   metricFlags: $("#metricFlags"),
-  metricFlagsSmall: $("#metricFlagsSmall"),
+  runSelectedButton: $("#runSelectedButton"),
+  batchDryRunButton: $("#batchDryRunButton"),
+  batchDryRunPanelButton: $("#batchDryRunPanelButton"),
+  batchRunButton: $("#batchRunButton"),
+  nextStepCard: $("#nextStepCard"),
+  nextStepTitle: $("#nextStepTitle"),
+  nextStepDetail: $("#nextStepDetail"),
+  queuePanelTitle: $("#queuePanelTitle"),
+  queuePanelHint: $("#queuePanelHint"),
   pipelineState: $("#pipelineState"),
   pipelineNote: $("#pipelineNote"),
   geminiState: $("#geminiState"),
@@ -47,7 +58,7 @@ const elements = {
   feishuTable: $("#feishuTable"),
   sampleCount: $("#sampleCount"),
   writtenCount: $("#writtenCount"),
-  geminiForm: $("#geminiForm"),
+  aiForm: $("#aiForm"),
   feishuForm: $("#feishuForm"),
   gameSelect: $("#gameSelect"),
   resultOverview: $("#resultOverview"),
@@ -57,9 +68,10 @@ const elements = {
   detailPanel: $("#detailPanel"),
   jobSummary: $("#jobSummary"),
   jobOutput: $("#jobOutput"),
-  sideJobOutput: $("#sideJobOutput"),
   cancelJobButton: $("#cancelJobButton"),
   batchGameIds: $("#batchGameIds"),
+  removeBatchSelectedButton: $("#removeBatchSelectedButton"),
+  clearBatchQueueButton: $("#clearBatchQueueButton"),
   batchSummary: $("#batchSummary"),
   autoplayPreflight: $("#autoplayPreflight"),
   setupSteps: $("#setupSteps"),
@@ -69,6 +81,7 @@ const elements = {
   storageEvidenceText: $("#storageEvidenceText"),
   storageScreenshotText: $("#storageScreenshotText"),
   configWorkbench: $("#configWorkbench"),
+  fieldComposer: $("#fieldComposer"),
 };
 
 init();
@@ -85,17 +98,21 @@ function bindEvents() {
   $("#openDataFolderButton").addEventListener("click", openDataFolder);
   $("#saveConfigButton").addEventListener("click", saveConfig);
   $("#importUrlsButton").addEventListener("click", importUrls);
-  $("#runSelectedButton").addEventListener("click", runSelectedGame);
+  elements.runSelectedButton.addEventListener("click", runSelectedGame);
   $("#fillBatchAllButton").addEventListener("click", fillBatchAll);
   $("#fillBatchSelectedButton").addEventListener("click", fillBatchSelected);
+  $("#removeBatchSelectedButton").addEventListener("click", removeBatchSelected);
+  $("#clearBatchQueueButton").addEventListener("click", clearBatchQueue);
   $("#fillBatchFailedButton").addEventListener("click", () => fillBatchFailed());
   $("#fillBatchResumeButton").addEventListener("click", () => fillBatchResume());
-  $("#batchDryRunButton").addEventListener("click", () => runBatch(false));
-  $("#batchDryRunPanelButton").addEventListener("click", () => runBatch(false));
-  $("#batchRunButton").addEventListener("click", () => runBatch(true));
+  elements.batchDryRunButton.addEventListener("click", () => runBatch(false));
+  elements.batchDryRunPanelButton.addEventListener("click", () => runBatch(false));
+  elements.batchRunButton.addEventListener("click", () => runBatch(true));
   elements.batchGameIds.addEventListener("input", () => {
     renderBatchSummary();
     renderAutoplayPreflight();
+    renderRunGate();
+    renderNextStep();
     if (["workbench", "queue"].includes(contextMode())) renderContextPanel();
   });
   $("#toggleConsoleButton").addEventListener("click", toggleConsole);
@@ -106,9 +123,15 @@ function bindEvents() {
     if (event.key === "Escape") closeShotPreview();
   });
 
-  $$(".rail-item[data-jump], .module[data-jump]").forEach((button) => {
+  $$(".rail-item[data-jump]").forEach((button) => {
     button.addEventListener("click", () => {
       activateSection(button.dataset.jump, button.dataset.view, button.dataset.workbenchMode);
+    });
+  });
+
+  $$("[data-guide-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activateSection(button.dataset.guideJump, button.dataset.guideView);
     });
   });
 
@@ -116,22 +139,40 @@ function bindEvents() {
     button.addEventListener("click", () => startJob(button.dataset.job));
   });
 
+  elements.aiForm?.activeProvider?.addEventListener("change", () => {
+    setActiveAiProviderDraft(elements.aiForm.activeProvider.value);
+  });
+
+  $$("[data-ai-provider-card]").forEach((card) => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("input, select, button, label")) return;
+      setActiveAiProviderDraft(card.dataset.aiProviderCard);
+    });
+  });
+
   elements.gameSelect.addEventListener("change", () => {
     state.selectedGameId = elements.gameSelect.value;
     renderGames();
     renderAutoplayPreflight();
+    updateQueueControls();
+    renderRunGate();
+    renderNextStep();
     renderContextPanel();
   });
   $("#runProfile").addEventListener("change", () => {
     applyRunProfile($("#runProfile").value);
     renderBatchSummary();
     renderAutoplayPreflight();
+    renderRunGate();
+    renderNextStep();
     renderContextPanel();
   });
   $("#playStrategy").addEventListener("change", () => {
     renderRunProfileNote();
     renderBatchSummary();
     renderAutoplayPreflight();
+    renderRunGate();
+    renderNextStep();
     renderContextPanel();
   });
   ["#playSeconds", "#aiMode", "#writeFeishu", "#forceCollect", "#forceAi", "#batchContinueOnError"].forEach((selector) => {
@@ -140,6 +181,8 @@ function bindEvents() {
       renderRunProfileNote();
       renderBatchSummary();
       renderAutoplayPreflight();
+      renderRunGate();
+      renderNextStep();
       renderContextPanel();
     });
   });
@@ -168,6 +211,9 @@ function activateSection(targetId, preferredView, workbenchMode) {
       scrollHost.scrollTo({ top: 0, behavior: "auto" });
     });
   }
+  renderWorkbenchMode();
+  renderRunGate();
+  renderNextStep();
   renderContextPanel();
 }
 
@@ -181,32 +227,109 @@ function setNavigationActive() {
     return view === state.currentView && !mode;
   };
   $$(".rail-item").forEach((item) => item.classList.toggle("active", isActive(item)));
-  $$(".module").forEach((item) => item.classList.toggle("active", isActive(item)));
+}
+
+function setActiveAiProviderDraft(provider) {
+  if (!provider || !elements.aiForm?.activeProvider) return;
+  const config = state.status?.config ?? {};
+  const ai = aiConfig(config);
+  if (state.status?.config) {
+    state.status.config.ai = {
+      ...ai,
+      active_provider: provider,
+      providers: ai.providers ?? {},
+    };
+  }
+  elements.aiForm.activeProvider.value = provider;
+  updateAiProviderStates(aiConfig(state.status?.config));
+  renderStatus();
+  renderSetupGuide();
+  renderRunGate();
+  renderNextStep();
+  renderContextPanel();
+}
+
+function aiConfig(config = state.status?.config ?? {}) {
+  const gemini = config.gemini ?? {};
+  return config.ai ?? {
+    active_provider: "gemini",
+    providers: {
+      gemini: {
+        ...gemini,
+        runtime_ready: true,
+      },
+    },
+  };
+}
+
+function activeAiProvider(ai) {
+  return ai?.providers?.[ai.active_provider || "gemini"] ?? ai?.providers?.gemini ?? {};
+}
+
+function aiRuntimeReady(provider) {
+  return Boolean(provider?.api_key_configured && provider?.runtime_ready);
+}
+
+function aiProviderLabel(provider) {
+  return {
+    gemini: "Gemini",
+    openai_compatible: "OpenAI 兼容",
+    deepseek: "DeepSeek",
+    openrouter: "OpenRouter",
+  }[provider] || provider || "AI";
+}
+
+function updateAiProviderStates(ai) {
+  const providers = ai.providers ?? {};
+  const activeProvider = ai.active_provider || "gemini";
+  for (const [provider, id] of Object.entries({
+    gemini: "geminiProviderState",
+    openai_compatible: "openaiProviderState",
+    deepseek: "deepseekProviderState",
+    openrouter: "openrouterProviderState",
+  })) {
+    const node = document.getElementById(id);
+    if (!node) continue;
+    const info = providers[provider] ?? {};
+    node.textContent = info.api_key_configured
+      ? (info.runtime_ready ? "已接入" : "已保存")
+      : (info.runtime_ready ? "可配置" : "预留");
+  }
+  $$("[data-ai-provider-card]").forEach((card) => {
+    const isActive = card.dataset.aiProviderCard === activeProvider;
+    card.classList.toggle("active", isActive);
+    card.classList.toggle("collapsed", !isActive);
+    card.setAttribute("aria-expanded", String(isActive));
+  });
 }
 
 async function refreshStatus() {
-  const [response, configWorkbench, taxonomySuggestions] = await Promise.all([
+  const [response, fieldComposer] = await Promise.all([
     fetchJson("/api/status"),
-    fetchJson("/api/config-workbench").catch(() => null),
-    fetchJson("/api/taxonomy-suggestions").catch(() => null),
+    fetchJson("/api/field-composer").catch(() => null),
   ]);
   state.status = response;
-  state.configWorkbench = configWorkbench;
-  state.taxonomySuggestions = taxonomySuggestions;
+  state.configWorkbench = null;
+  state.fieldComposer = fieldComposer?.composer ?? null;
+  state.fieldComposerDiff = fieldComposer?.last_diff ?? null;
+  state.fieldComposerApply = fieldComposer?.last_apply ?? null;
+  state.taxonomySuggestions = null;
   if (!state.selectedGameId) {
     state.selectedGameId = response.games?.[0]?.game_id ?? "";
   }
   setNavigationActive();
   renderStatus();
   renderConfigForms();
+  renderFieldComposerWorkbench();
   renderSetupGuide();
-  renderStorageGuide();
-  renderFieldConfigWorkbench();
   renderRunProfiles();
   renderGames();
   renderBatchSummary();
   renderAutoplayPreflight();
   renderBatchHistoryPanel();
+  renderWorkbenchMode();
+  renderRunGate();
+  renderNextStep();
   renderContextPanel();
 }
 
@@ -229,9 +352,11 @@ async function refreshJobs() {
 function renderStatus() {
   const games = state.status.games ?? [];
   const configured = state.status.config ?? {};
+  const ai = aiConfig(configured);
+  const activeAi = activeAiProvider(ai);
   const written = games.filter((game) => ["updated", "written"].includes(game.feishu_write_status)).length;
   const running = state.jobs.filter((job) => job.status === "running").length;
-  const ready = configured.gemini?.api_key_configured && configured.feishu?.app_id_configured && configured.feishu?.app_secret_configured;
+  const ready = aiRuntimeReady(activeAi) && configured.feishu?.app_id_configured && configured.feishu?.app_secret_configured;
   const screenshotCount = games.reduce((sum, game) => sum + (game.screenshots?.length ?? 0), 0);
   const videoCount = games.reduce((sum, game) => sum + (game.videos?.length ?? 0), 0);
   const flagCount = games.reduce((sum, game) => sum + qualitySignals(game).length, 0);
@@ -242,28 +367,198 @@ function renderStatus() {
   elements.navJobState.textContent = "02";
   if (elements.navWriteState) elements.navWriteState.textContent = String(written);
   elements.pipelineState.textContent = ready
-    ? `正式 30 分钟 / 4 档设备 / Gemini / ${writeText}`
+    ? `正式 30 分钟 / 4 档设备 / ${aiProviderLabel(ai.active_provider)} / ${writeText}`
     : "待配置";
   elements.pipelineNote.textContent = state.status.data_root ?? "E:\\H5游戏评测助手数据";
-  elements.geminiState.textContent = configured.gemini?.api_key_configured ? "Gemini" : "Gemini";
-  elements.geminiModel.textContent = configured.gemini?.api_key_configured ? "标签匹配" : "未配置";
+  elements.geminiState.textContent = aiProviderLabel(ai.active_provider);
+  elements.geminiModel.textContent = activeAi?.api_key_configured
+    ? (activeAi.runtime_ready ? activeAi.model || "标签匹配" : "已保存，待接入")
+    : "未配置";
   elements.feishuState.textContent = configured.feishu?.ready ? "已连接配置" : "待检查";
   elements.feishuTable.textContent = configured.feishu?.evaluation_table_id ? `表 ${configured.feishu.evaluation_table_id}` : "-";
   elements.sampleCount.textContent = `${games.length} 款`;
   elements.metricShots.textContent = String(screenshotCount);
   elements.metricVideos.textContent = String(videoCount);
   elements.metricFlags.textContent = String(flagCount);
-  elements.metricFlagsSmall.textContent = `${flagCount} 提示`;
   elements.writtenCount.textContent = configured.feishu?.ready
     ? `字段就绪 · ${configured.feishu?.upload_screenshots ? "截图上传" : "截图本地"}`
     : "字段待检查";
 }
 
+function renderWorkbenchMode() {
+  const modes = {
+    workbench: ["评测队列", "导入后先预演，再运行。"],
+    queue: ["任务队列", "批量预演、运行、失败恢复和清空当前队列输入。"],
+    library: ["游戏库", "查看每款游戏的采集、AI、飞书写入和质量状态。"],
+    review: ["证据复核", "集中检查截图、质量提示和人工复核结果。"],
+  };
+  const [title, hint] = modes[contextMode()] ?? modes.workbench;
+  if (elements.queuePanelTitle) elements.queuePanelTitle.textContent = title;
+  if (elements.queuePanelHint) elements.queuePanelHint.textContent = hint;
+}
+
+function fieldComposerWriteReadiness() {
+  const status = state.fieldComposerDiff?.status || "";
+  if (!state.fieldComposer) {
+    return { ok: false, label: "读取字段中", detail: "字段编排器还在读取，请稍后再运行。" };
+  }
+  if (!status) {
+    return { ok: false, label: "先检查字段", detail: "先到配置中心检查飞书差异，确认分类表和字段能写入。" };
+  }
+  if (status === "ready") {
+    return { ok: true, label: "字段已就绪", detail: "飞书分类表和字段结构已匹配。" };
+  }
+  if (status === "needs_confirmation") {
+    return { ok: false, label: "先确认字段", detail: "飞书缺少表或字段，需要二次确认后再创建。" };
+  }
+  if (status === "blocked_type_conflict") {
+    return { ok: false, label: "处理字段冲突", detail: "飞书已有字段类型与本地编排冲突，需要先人工调整。" };
+  }
+  if (status === "needs_feishu_config") {
+    return { ok: false, label: "先配置飞书", detail: "飞书凭证或多维表格目标还没有就绪。" };
+  }
+  return { ok: false, label: "重新检查字段", detail: "最近一次字段检查未通过，先重新检查飞书差异。" };
+}
+
+function buildRunGate(options = {}) {
+  const batch = Boolean(options.batch);
+  if (!state.status) {
+    return { canRun: false, label: "读取中", detail: "正在读取配置和游戏列表。" };
+  }
+  const games = state.status.games ?? [];
+  if (!games.length) {
+    return { canRun: false, label: "先导入游戏", detail: "先导入至少一个 H5 游戏链接。" };
+  }
+  if (!batch && !selectedGame()) {
+    return { canRun: false, label: "先选择游戏", detail: "选择一款游戏后再运行。" };
+  }
+
+  const config = state.status.config ?? {};
+  const ai = aiConfig(config);
+  const activeAi = activeAiProvider(ai);
+  const aiMode = $("#aiMode")?.value || profileAiMode(currentRunProfile());
+  if (aiMode === "live" && !aiRuntimeReady(activeAi)) {
+    return {
+      canRun: false,
+      label: "先配置 AI",
+      detail: `${aiProviderLabel(ai.active_provider)} 还不能用于生产评测。先填写 API Key，或把 AI 模式改成本地兜底。`,
+    };
+  }
+
+  const wantsFeishu = $("#writeFeishu")?.checked !== false;
+  if (wantsFeishu) {
+    if (!config.feishu?.ready) {
+      return { canRun: false, label: "先检查飞书", detail: "飞书凭证和目标多维表格还没有通过检查。" };
+    }
+    const fieldState = fieldComposerWriteReadiness();
+    if (!fieldState.ok) {
+      return { canRun: false, label: fieldState.label, detail: fieldState.detail };
+    }
+  }
+
+  return {
+    canRun: true,
+    label: batch ? "运行" : "开始运行",
+    detail: batch ? "按当前队列或全部样本开始批量运行。" : "运行当前选中的游戏。",
+  };
+}
+
+function buildDryRunGate() {
+  if (!state.status) return { canRun: false, label: "读取中", detail: "正在读取配置和游戏列表。" };
+  const games = state.status.games ?? [];
+  if (!games.length) {
+    return { canRun: false, label: "先导入游戏", detail: "先导入至少一个 H5 游戏链接，再预演队列。" };
+  }
+  return { canRun: true, label: "预演队列", detail: "只生成队列计划，不采集、不写入飞书。" };
+}
+
+function applyButtonGate(button, gate, fallbackLabel) {
+  if (!button) return;
+  button.disabled = !gate.canRun;
+  button.textContent = gate.canRun ? (fallbackLabel || gate.label) : gate.label;
+  button.title = gate.detail || "";
+}
+
+function renderRunGate() {
+  const singleGate = buildRunGate({ batch: false });
+  const batchGate = buildRunGate({ batch: true });
+  const dryRunGate = buildDryRunGate();
+  applyButtonGate(elements.runSelectedButton, singleGate, "开始运行");
+  applyButtonGate($("#panelRunSelectedButton"), singleGate, "开始运行");
+  applyButtonGate(elements.batchRunButton, batchGate, "运行");
+  applyButtonGate(elements.batchDryRunButton, dryRunGate, "预演队列");
+  applyButtonGate(elements.batchDryRunPanelButton, dryRunGate, "预演");
+}
+
+function currentNextStep() {
+  if (!state.status) {
+    return { tone: "warn", title: "读取状态", detail: "正在确认配置、字段和队列。" };
+  }
+  const steps = setupStepsData();
+  const incomplete = steps.find((step) => !step.done);
+  if (incomplete) {
+    return { tone: "warn", title: incomplete.title, detail: incomplete.detail };
+  }
+
+  const taxonomyCount = Number(state.status.config?.taxonomy?.option_count ?? 0);
+  if (!taxonomyCount) {
+    return { tone: "warn", title: "同步飞书标签库", detail: "玩法、题材、画风等选项需要先从飞书表格读取。" };
+  }
+
+  const wantsFeishu = $("#writeFeishu")?.checked !== false;
+  if (wantsFeishu) {
+    const fieldState = fieldComposerWriteReadiness();
+    if (!fieldState.ok) {
+      return { tone: "warn", title: fieldState.label, detail: fieldState.detail };
+    }
+  }
+
+  const games = state.status.games ?? [];
+  if (!games.length) {
+    return { tone: "warn", title: "导入 H5 链接", detail: "支持不同在线试玩站点的链接，不要求固定 URL 格式。" };
+  }
+
+  if (contextMode() === "queue") {
+    return { tone: "good", title: "预演或运行队列", detail: "先用预演确认范围，再开始批量运行。" };
+  }
+  const game = selectedGame();
+  return {
+    tone: "good",
+    title: "可以开始运行",
+    detail: game ? `当前选中：${game.game_name || game.game_id}` : "选择游戏后即可运行。",
+  };
+}
+
+function renderNextStep() {
+  if (!elements.nextStepCard) return;
+  const step = currentNextStep();
+  elements.nextStepCard.classList.toggle("good", step.tone === "good");
+  elements.nextStepCard.classList.toggle("warn", step.tone !== "good");
+  elements.nextStepTitle.textContent = step.title;
+  elements.nextStepDetail.textContent = step.detail;
+}
+
 function renderConfigForms() {
   const config = state.status.config ?? {};
-  elements.geminiForm.model.value = config.gemini?.model ?? "gemini-2.5-flash-lite";
-  elements.geminiForm.proxy.value = config.gemini?.proxy ?? "";
-  elements.geminiForm.apiKey.placeholder = config.gemini?.api_key_configured ? "已配置，留空保留" : "粘贴 Gemini API Key";
+  const ai = aiConfig(config);
+  const providers = ai.providers ?? {};
+  const form = elements.aiForm;
+  if (form) {
+    form.activeProvider.value = ai.active_provider || "gemini";
+    form.geminiModel.value = providers.gemini?.model ?? "gemini-2.5-flash-lite";
+    form.geminiProxy.value = providers.gemini?.proxy ?? "";
+    form.geminiApiKey.placeholder = providers.gemini?.api_key_configured ? "已配置，留空保留" : "粘贴 Gemini API Key";
+    form.openaiBaseUrl.value = providers.openai_compatible?.base_url ?? "";
+    form.openaiModel.value = providers.openai_compatible?.model ?? "";
+    form.openaiApiKey.placeholder = providers.openai_compatible?.api_key_configured ? "已配置，留空保留" : "粘贴 OpenAI 兼容 API Key";
+    form.deepseekBaseUrl.value = providers.deepseek?.base_url ?? "";
+    form.deepseekModel.value = providers.deepseek?.model ?? "";
+    form.deepseekApiKey.placeholder = providers.deepseek?.api_key_configured ? "已配置，留空保留" : "粘贴 DeepSeek API Key";
+    form.openrouterBaseUrl.value = providers.openrouter?.base_url ?? "";
+    form.openrouterModel.value = providers.openrouter?.model ?? "";
+    form.openrouterApiKey.placeholder = providers.openrouter?.api_key_configured ? "已配置，留空保留" : "粘贴 OpenRouter API Key";
+    updateAiProviderStates(ai);
+  }
 
   elements.feishuForm.appId.value = config.feishu?.app_id ?? "";
   elements.feishuForm.appSecret.placeholder = config.feishu?.app_secret_configured ? "已配置，留空保留" : "粘贴 App Secret";
@@ -272,32 +567,374 @@ function renderConfigForms() {
   elements.feishuForm.uploadScreenshots.checked = Boolean(config.feishu?.upload_screenshots);
 }
 
+function renderFieldComposerWorkbench() {
+  const root = elements.fieldComposer;
+  if (!root) return;
+  const composer = state.fieldComposer;
+  if (!composer) {
+    root.innerHTML = `<div class="field-composer-empty">字段编排器读取中。</div>`;
+    return;
+  }
+  const assigned = assignedFieldIds(composer);
+  const fieldsById = new Map(composer.fields.map((field) => [field.id, field]));
+  const activeFieldRefs = composer.categories
+    .flatMap((category) => category.field_ids ?? [])
+    .map((id) => fieldsById.get(id))
+    .filter(Boolean);
+  const inactiveFields = composer.fields.filter((field) => !assigned.has(field.id));
+  const activeCount = activeFieldRefs.length;
+  const diff = state.fieldComposerDiff;
+  root.innerHTML = `
+    <div class="field-composer-head">
+      <div>
+        <span>飞书输出</span>
+        <h2>输出字段与标签库</h2>
+        <p>每个分类会对应一个飞书数据表，拖入分类的字段才会写入。</p>
+      </div>
+      <div class="button-row">
+        <button class="button" data-field-composer-reset type="button">恢复默认</button>
+        <button class="button" data-field-composer-save type="button">保存编排</button>
+        <button class="button primary" data-field-composer-diff type="button">检查飞书差异</button>
+      </div>
+    </div>
+    ${fieldComposerTaxonomyStrip()}
+    <div class="field-composer-stats">
+      ${fieldComposerStat("分类表", composer.categories.length)}
+      ${fieldComposerStat("写入字段", activeCount)}
+      ${fieldComposerStat("未写入", inactiveFields.length)}
+      ${fieldComposerStat("单选", activeFieldRefs.filter((field) => field.feishu_type === "single_select").length)}
+      ${fieldComposerStat("多选", activeFieldRefs.filter((field) => field.feishu_type === "multi_select").length)}
+    </div>
+    <div class="field-composer-layout">
+      <section class="field-pool" data-field-drop="unassigned">
+        <div class="mini-panel-head"><span>总字段库</span><b>${inactiveFields.length} 个未写入</b></div>
+        <div class="field-pool-list">
+          ${inactiveFields.map((field) => fieldComposerCard(field, { unassigned: true })).join("") || `<div class="field-composer-empty">全部字段都已放入分类。</div>`}
+        </div>
+      </section>
+      <section class="field-category-board">
+        ${composer.categories.map((category) => fieldCategoryLane(category, composer)).join("")}
+      </section>
+    </div>
+    ${fieldComposerDiffPanel(diff)}
+  `;
+  bindFieldComposerActions(root);
+}
+
+function assignedFieldIds(composer) {
+  return new Set((composer.categories ?? []).flatMap((category) => category.field_ids ?? []));
+}
+
+function fieldComposerStat(label, value) {
+  return `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`;
+}
+
+function fieldCategoryLane(category, composer) {
+  const fieldsById = new Map(composer.fields.map((field) => [field.id, field]));
+  const fields = (category.field_ids ?? []).map((id) => fieldsById.get(id)).filter(Boolean);
+  return `<article class="field-category-lane" data-field-drop="${escapeAttr(category.id)}">
+    <div class="field-category-head">
+      <div>
+        <span>${escapeHtml(category.label_zh)}</span>
+        <input data-category-table-name="${escapeAttr(category.id)}" value="${escapeAttr(category.table_name)}" aria-label="${escapeAttr(category.label_zh)}表名">
+      </div>
+      <b>${escapeHtml(fields.length)} 字段</b>
+    </div>
+    <div class="field-category-list">
+      ${fields.map((field) => fieldComposerCard(field, { categoryId: category.id })).join("") || `<div class="field-composer-empty">拖入字段到这里。</div>`}
+    </div>
+  </article>`;
+}
+
+function fieldComposerCard(field, options = {}) {
+  const categoryId = options.categoryId || "";
+  const action = options.unassigned
+    ? `<button class="button small" data-field-add="${escapeAttr(field.id)}" type="button">加入</button>`
+    : `<button class="button small" data-field-remove="${escapeAttr(field.id)}" type="button">移出</button>`;
+  return `<article class="field-composer-card" draggable="true" data-field-id="${escapeAttr(field.id)}" data-category-id="${escapeAttr(categoryId)}">
+    <div>
+      <b>${escapeHtml(field.label_zh || field.field_name)}</b>
+      <span>${escapeHtml(field.field_name)} · ${escapeHtml(field.source_path || "-")}</span>
+    </div>
+    <div class="field-card-controls">
+      <select data-field-type="${escapeAttr(field.id)}" aria-label="${escapeAttr(field.label_zh || field.field_name)}字段类型">
+        ${fieldTypeOptions(field.feishu_type)}
+      </select>
+      ${field.option_category ? `<i>${escapeHtml(taxonomyCategoryLabel(field.option_category))}</i>` : ""}
+      ${action}
+    </div>
+  </article>`;
+}
+
+function fieldTypeOptions(current) {
+  const types = [
+    ["text", "文本"],
+    ["long_text", "长文本"],
+    ["number", "数字"],
+    ["single_select", "单选"],
+    ["multi_select", "多选"],
+    ["checkbox", "勾选"],
+    ["url", "链接"],
+    ["attachment", "附件"],
+  ];
+  return types.map(([value, label]) => `<option value="${escapeAttr(value)}" ${current === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function bindFieldComposerActions(root) {
+  root.querySelector("[data-field-composer-save]")?.addEventListener("click", () => saveFieldComposer());
+  root.querySelector("[data-field-composer-diff]")?.addEventListener("click", checkFieldComposerDiff);
+  root.querySelector("[data-field-composer-reset]")?.addEventListener("click", resetFieldComposer);
+  root.querySelector("[data-field-composer-apply]")?.addEventListener("click", applyFieldComposerSchema);
+  root.querySelector("[data-field-taxonomy-sync]")?.addEventListener("click", () => startJob("taxonomy-sync"));
+  root.querySelectorAll("[data-category-table-name]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const category = state.fieldComposer?.categories?.find((item) => item.id === input.dataset.categoryTableName);
+      if (category) category.table_name = input.value.trim();
+    });
+  });
+  root.querySelectorAll("[data-field-type]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const field = state.fieldComposer?.fields?.find((item) => item.id === select.dataset.fieldType);
+      if (field) field.feishu_type = select.value;
+      renderFieldComposerWorkbench();
+    });
+  });
+  root.querySelectorAll("[data-field-add]").forEach((button) => {
+    button.addEventListener("click", () => {
+      moveFieldToCategory(button.dataset.fieldAdd, state.fieldComposer?.categories?.[0]?.id || "");
+      renderFieldComposerWorkbench();
+    });
+  });
+  root.querySelectorAll("[data-field-remove]").forEach((button) => {
+    button.addEventListener("click", () => {
+      moveFieldToCategory(button.dataset.fieldRemove, "");
+      renderFieldComposerWorkbench();
+    });
+  });
+  root.querySelectorAll("[data-field-id]").forEach((card) => {
+    card.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("text/plain", card.dataset.fieldId || "");
+      event.dataTransfer?.setData("source/category", card.dataset.categoryId || "");
+    });
+  });
+  root.querySelectorAll("[data-field-drop]").forEach((dropZone) => {
+    dropZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropZone.classList.add("drag-over");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropZone.classList.remove("drag-over");
+      const fieldId = event.dataTransfer?.getData("text/plain") || "";
+      const categoryId = dropZone.dataset.fieldDrop === "unassigned" ? "" : dropZone.dataset.fieldDrop || "";
+      moveFieldToCategory(fieldId, categoryId);
+      renderFieldComposerWorkbench();
+    });
+  });
+}
+
+function moveFieldToCategory(fieldId, categoryId) {
+  const composer = state.fieldComposer;
+  if (!composer || !fieldId) return;
+  for (const category of composer.categories) {
+    category.field_ids = (category.field_ids ?? []).filter((id) => id !== fieldId);
+  }
+  if (!categoryId) return;
+  const target = composer.categories.find((category) => category.id === categoryId);
+  if (!target) return;
+  target.field_ids = [...new Set([...(target.field_ids ?? []), fieldId])];
+}
+
+function fieldComposerTaxonomyStrip() {
+  const taxonomy = state.status?.config?.taxonomy ?? {};
+  const feishu = state.status?.config?.feishu ?? {};
+  const ready = Number(taxonomy.option_count ?? 0) > 0;
+  const tableReady = Boolean(feishu.taxonomy_table_id);
+  const statusText = ready
+    ? `已同步 ${taxonomy.option_count} 项`
+    : tableReady
+      ? "待同步"
+      : "待配置标签表";
+  return `<div class="field-taxonomy-strip ${ready ? "good" : "warn"}">
+    <div>
+      <span>飞书标签库</span>
+      <b>${escapeHtml(statusText)}</b>
+    </div>
+    <button class="button small" data-field-taxonomy-sync type="button">同步标签库</button>
+  </div>`;
+}
+
+async function saveFieldComposer(options = {}) {
+  if (!state.fieldComposer) return;
+  const response = await fetchJson("/api/field-composer", {
+    method: "POST",
+    body: JSON.stringify({ composer: state.fieldComposer }),
+  });
+  state.fieldComposer = response.composer;
+  state.fieldComposerDiff = response.last_diff ?? null;
+  state.fieldComposerApply = response.last_apply ?? null;
+  renderFieldComposerWorkbench();
+  renderRunGate();
+  renderNextStep();
+  if (!options.silent) appendConsole("字段编排已保存。");
+}
+
+async function checkFieldComposerDiff() {
+  await saveFieldComposer({ silent: true });
+  state.fieldComposerDiff = await fetchJson("/api/field-composer/diff", { method: "POST", body: "{}" });
+  state.fieldComposerApply = null;
+  renderFieldComposerWorkbench();
+  renderRunGate();
+  renderNextStep();
+  appendConsole(`字段差异检查完成：${displayValue(state.fieldComposerDiff.status)}`);
+}
+
+async function resetFieldComposer() {
+  if (!window.confirm("恢复默认字段分类？当前本地字段编排会被覆盖，不会修改飞书。")) return;
+  const response = await fetchJson("/api/field-composer/reset", { method: "POST", body: "{}" });
+  state.fieldComposer = response.composer;
+  state.fieldComposerDiff = response.last_diff ?? null;
+  state.fieldComposerApply = response.last_apply ?? null;
+  renderFieldComposerWorkbench();
+  renderRunGate();
+  renderNextStep();
+  appendConsole("字段编排已恢复默认。");
+}
+
+async function applyFieldComposerSchema() {
+  const summary = state.fieldComposerDiff?.summary ?? {};
+  const missingTables = summary.missing_tables ?? 0;
+  const missingFields = summary.missing_fields ?? 0;
+  if (!missingTables && !missingFields) {
+    appendConsole("飞书结构没有需要新增的表或字段。");
+    return;
+  }
+  const confirmed = window.confirm(
+    `将在飞书新增 ${missingTables} 个数据表、${missingFields} 个字段。\n\n不会删除飞书已有字段，也不会修改已有字段类型。确认继续？`,
+  );
+  if (!confirmed) return;
+  const response = await fetchJson("/api/field-composer/apply", {
+    method: "POST",
+    body: JSON.stringify({ confirm: true }),
+  });
+  state.fieldComposerApply = response.result ?? null;
+  state.fieldComposerDiff = response.diff ?? state.fieldComposerDiff;
+  renderFieldComposerWorkbench();
+  renderRunGate();
+  renderNextStep();
+  const result = state.fieldComposerApply ?? {};
+  appendConsole(`飞书结构同步：${displayValue(result.status)}；新建表 ${result.created_tables?.length ?? 0}，新建字段 ${result.created_fields?.length ?? 0}。`);
+}
+
+function fieldComposerDiffPanel(diff) {
+  if (!diff) {
+    return `<section class="field-diff-panel empty">
+      <div><span>飞书差异预检</span><b>未检查</b><p>检查缺表、缺字段和类型冲突。</p></div>
+    </section>`;
+  }
+  const summary = diff.summary ?? {};
+  const tone = diff.status === "ready" ? "good" : diff.status === "blocked_type_conflict" || diff.status === "failed" ? "bad" : "warn";
+  const canApply = diff.status === "needs_confirmation" && ((summary.missing_tables ?? 0) || (summary.missing_fields ?? 0));
+  const applyResult = state.fieldComposerApply;
+  return `<section class="field-diff-panel ${escapeAttr(tone)}">
+    <div class="field-diff-head">
+      <div><span>飞书差异预检</span><b>${escapeHtml(fieldComposerStatusLabel(diff.status))}</b><p>${escapeHtml((diff.next_prompt ?? []).join(" "))}</p></div>
+      ${pill(fieldComposerStatusLabel(diff.status), tone)}
+    </div>
+    <div class="field-diff-metrics">
+      ${fieldComposerStat("缺表", summary.missing_tables ?? 0)}
+      ${fieldComposerStat("缺字段", summary.missing_fields ?? 0)}
+      ${fieldComposerStat("类型冲突", summary.type_conflicts ?? 0)}
+      ${fieldComposerStat("飞书多余字段", summary.extra_remote_fields ?? 0)}
+    </div>
+    <div class="field-diff-list">
+      ${diffRows("需要新建表", diff.missing_tables, (item) => `${item.table_name} · ${item.expected_field_count} 字段`)}
+      ${diffRows("需要新建字段", diff.missing_fields, (item) => `${item.table_name} / ${item.field_name} · ${fieldTypeLabel(item.expected_type)}`)}
+      ${diffRows("类型冲突", diff.type_conflicts, (item) => `${item.table_name} / ${item.field_name} · 工具 ${fieldTypeLabel(item.expected_type)}，飞书 ${item.remote_type_label}`)}
+      ${diffRows("飞书已有但本次不写", diff.extra_remote_fields, (item) => `${item.table_name} / ${item.field_name} · 保留为空`)}
+    </div>
+    ${canApply ? `<div class="field-diff-actions">
+      <button class="button primary" data-field-composer-apply type="button">确认创建缺失表/字段</button>
+      <span>只新增，不删除，不改类型。</span>
+    </div>` : ""}
+    ${applyResult ? `<div class="field-apply-note">
+      上次同步：${escapeHtml(fieldApplyStatusLabel(applyResult.status))} · 新建表 ${escapeHtml(applyResult.created_tables?.length ?? 0)} · 新建字段 ${escapeHtml(applyResult.created_fields?.length ?? 0)}${applyResult.failed_items?.length ? ` · 失败 ${escapeHtml(applyResult.failed_items.length)}` : ""}
+    </div>` : ""}
+  </section>`;
+}
+
+function diffRows(title, items = [], format) {
+  const visible = items.slice(0, 8);
+  if (!visible.length) return "";
+  const more = items.length > visible.length ? `<li>还有 ${escapeHtml(items.length - visible.length)} 项</li>` : "";
+  return `<div><b>${escapeHtml(title)}</b><ul>${visible.map((item) => `<li>${escapeHtml(format(item))}</li>`).join("")}${more}</ul></div>`;
+}
+
+function fieldTypeLabel(type) {
+  return {
+    text: "文本",
+    long_text: "长文本",
+    number: "数字",
+    single_select: "单选",
+    multi_select: "多选",
+    checkbox: "勾选",
+    url: "链接",
+    attachment: "附件",
+  }[type] || type || "-";
+}
+
+function fieldComposerStatusLabel(status) {
+  return {
+    ready: "结构匹配",
+    needs_confirmation: "需二次确认",
+    blocked_type_conflict: "类型冲突",
+    needs_feishu_config: "待配置飞书",
+    failed: "检查失败",
+  }[status] || status || "未检查";
+}
+
+function fieldApplyStatusLabel(status) {
+  return {
+    created: "已创建",
+    partial_failed: "部分失败",
+    failed: "失败",
+    nothing_to_create: "无需新增",
+    blocked_type_conflict: "类型冲突",
+    needs_feishu_config: "待配置飞书",
+    confirmation_required: "待确认",
+  }[status] || status || "未知";
+}
+
 function renderSetupGuide() {
   const steps = setupStepsData();
   const completed = steps.filter((step) => step.done).length;
-  elements.setupProgressText.textContent = `${completed}/${steps.length} 已完成`;
-  elements.setupMeter.style.width = `${Math.round((completed / steps.length) * 100)}%`;
-  elements.setupSteps.innerHTML = steps.map((step, index) => setupStepMarkup(step, index)).join("");
-  bindSetupActions();
+  const percent = steps.length ? Math.round((completed / steps.length) * 100) : 0;
+  if (elements.setupProgressText) elements.setupProgressText.textContent = `${completed}/${steps.length} 已完成`;
+  if (elements.setupMeter) elements.setupMeter.style.width = `${percent}%`;
+  if (elements.setupSteps) {
+    elements.setupSteps.innerHTML = steps.map((step, index) => setupStepMarkup(step, index)).join("");
+    bindSetupActions();
+  }
 }
 
 function setupStepsData() {
   const config = state.status.config ?? {};
-  const gemini = config.gemini ?? {};
+  const ai = aiConfig(config);
+  const activeAi = activeAiProvider(ai);
   const feishu = config.feishu ?? {};
-  const taxonomy = config.taxonomy ?? {};
   const hasBitableTarget = Boolean(feishu.app_token && feishu.evaluation_table_id);
   return [
     {
-      title: "填写 Gemini",
-      detail: gemini.api_key_configured ? `已配置 ${gemini.model || "Gemini"}` : "填写 API Key，模型可先使用默认值。",
-      done: Boolean(gemini.api_key_configured),
+      title: "填写 AI 模型",
+      detail: activeAi?.api_key_configured ? `已配置 ${aiProviderLabel(ai.active_provider)} · ${activeAi.model || "默认模型"}` : "选择供应商并填写 API Key。",
+      done: Boolean(activeAi?.api_key_configured),
       action: { label: "去填写", scroll: "config" },
     },
     {
-      title: "测试 Gemini",
-      detail: gemini.latest_check_status === "ok" ? "连接测试通过。" : "确认 API Key、代理和模型能正常调用。",
-      done: gemini.latest_check_status === "ok",
+      title: "测试可用模型",
+      detail: activeAi?.runtime_ready ? (activeAi.latest_check_status === "ok" ? "连接测试通过。" : "确认 API Key、代理和模型能正常调用。") : "当前评测链路暂只接入 Gemini，其他供应商先保存配置。",
+      done: Boolean(activeAi?.runtime_ready && activeAi.latest_check_status === "ok"),
       action: { label: "测试", job: "gemini-test" },
     },
     {
@@ -313,27 +950,16 @@ function setupStepsData() {
       action: { label: "去填写", scroll: "config" },
     },
     {
-      title: "检查飞书字段",
-      detail: feishu.fields_status === "ready_for_write_test" ? "字段已匹配，可以写入。" : "检查表格字段是否齐全，缺字段时工具会提示。",
-      done: feishu.fields_status === "ready_for_write_test",
-      action: { label: "检查字段", job: "feishu-fields" },
-    },
-    {
-      title: "同步标签库",
-      detail: taxonomy.option_count ? `已同步 ${taxonomy.option_count} 个选项。` : "从飞书表格同步玩法、题材、画风、标签等选项。",
-      done: Number(taxonomy.option_count ?? 0) > 0,
-      action: { label: "同步", job: "taxonomy-sync" },
-    },
-    {
-      title: "预演批量队列",
-      detail: latestBatchRecord(state.status.batch)?.mode === "dry_run" ? "已有队列预演记录。" : "先预演，不采集也不写入，确认会跑哪些游戏。",
-      done: latestBatchRecord(state.status.batch)?.mode === "dry_run",
-      action: { label: "去预演", scroll: "runner" },
+      title: "检查飞书连接",
+      detail: feishu.ready ? "飞书凭证和目标表格已通过检查。" : "确认 App 权限、App Token 和 Table ID 能正常访问。",
+      done: Boolean(feishu.ready),
+      action: { label: "检查", job: "feishu-check" },
     },
   ];
 }
 
 function renderStorageGuide() {
+  if (!elements.storageRootText || !elements.storageEvidenceText || !elements.storageScreenshotText) return;
   const dataRoot = state.status?.data_root ?? "";
   const uploadScreenshots = Boolean(state.status?.config?.feishu?.upload_screenshots);
   elements.storageRootText.textContent = dataRoot
@@ -1148,6 +1774,11 @@ function qualitySignals(game) {
     addQualitySignal(signals, "warn", "AI 使用兜底结果", `当前来源为 ${game.evaluation_source}`);
   }
 
+  const missingTaxonomyOptions = game.taxonomy_preflight?.missing_options ?? [];
+  if (missingTaxonomyOptions.length > 0) {
+    addQualitySignal(signals, "warn", "分类选项待补充", `${missingTaxonomyOptions.length} 个值不在飞书标签库中`);
+  }
+
   if (!["updated", "written"].includes(game.feishu_write_status)) {
     addQualitySignal(signals, "bad", "飞书未完成写入", game.feishu_write_status || "未找到写入结果");
   }
@@ -1279,8 +1910,14 @@ function qualityNotesText(signals) {
 function renderBatchSummary() {
   const history = batchHistory();
   const batch = latestBatchRecord(state.status?.batch) ?? history[0];
+  const production = batchProductionOverview();
+  updateQueueControls();
   if (!batch) {
-    elements.batchSummary.innerHTML = `<div class="empty-state">暂无批量任务。先预演队列确认会跑哪些游戏。</div>`;
+    elements.batchSummary.innerHTML = `
+      ${queueEditorMarkup()}
+      ${productionOverviewMarkup(production)}
+      <div class="empty-state">暂无批量任务。先预演队列确认会跑哪些游戏。</div>`;
+    bindBatchSummaryActions();
     return;
   }
 
@@ -1311,6 +1948,8 @@ function renderBatchSummary() {
     </div>`
     : `<div class="empty-state">暂无历史批次。</div>`;
   elements.batchSummary.innerHTML = `
+    ${queueEditorMarkup()}
+    ${productionOverviewMarkup(production)}
     <div class="batch-overview">
       <div>
         <span>最近批量</span>
@@ -1329,6 +1968,23 @@ function renderBatchSummary() {
     ${taskRows}
     ${historyRows}`;
   bindBatchSummaryActions();
+}
+
+function queueEditorMarkup() {
+  const ids = selectedBatchGameIds();
+  if (!ids.length) {
+    const total = state.status?.games?.length ?? 0;
+    return `<section class="queue-edit-summary empty">
+      <div><b>当前队列为空</b><span>这里没有可删除项。运行或预演时会默认使用全部样本${total ? `（${total} 款）` : ""}；如只跑单款，请点“当前”。</span></div>
+    </section>`;
+  }
+  return `<section class="queue-edit-summary">
+    <div><b>当前队列</b><span>${ids.length} 款游戏，可单项移除或清空输入框。</span></div>
+    <div class="queue-edit-chips">
+      ${ids.slice(0, 12).map((id) => `<button class="queue-chip" data-remove-queue-id="${escapeAttr(id)}" type="button"><span>${escapeHtml(id)}</span><i>×</i></button>`).join("")}
+      ${ids.length > 12 ? `<em>还有 ${escapeHtml(ids.length - 12)} 项</em>` : ""}
+    </div>
+  </section>`;
 }
 
 function renderBatchHistoryPanel() {
@@ -1508,6 +2164,10 @@ function batchHistoryMainRow(run, index) {
 }
 
 function bindBatchSummaryActions() {
+  bindProductionRecoveryActions(elements.batchSummary);
+  elements.batchSummary.querySelectorAll("[data-remove-queue-id]").forEach((button) => {
+    button.addEventListener("click", () => removeBatchGameId(button.dataset.removeQueueId));
+  });
   elements.batchSummary.querySelector("[data-batch-latest-resume]")?.addEventListener("click", () => fillBatchResume());
   elements.batchSummary.querySelector("[data-batch-latest-failed]")?.addEventListener("click", () => fillBatchFailed());
   elements.batchSummary.querySelector("[data-batch-latest-report]")?.addEventListener("click", () => exportBatchReport(latestBatchRecord(state.status?.batch)));
@@ -1539,6 +2199,83 @@ function latestBatchRecord(batch) {
 
 function batchHistory() {
   return state.status?.batch?.history ?? [];
+}
+
+function batchProductionOverview() {
+  return state.status?.batch?.production ?? null;
+}
+
+function productionOverviewMarkup(production, options = {}) {
+  if (!production) return "";
+  const compact = Boolean(options.compact);
+  const totals = production.totals ?? {};
+  const recovery = production.recovery_plan ?? {};
+  const failures = production.recurrent_failures ?? [];
+  const tone = production.tone || statusTone(production.status);
+  const runCount = production.recent_window_count ?? 0;
+  const executeCount = production.execute_run_count ?? 0;
+  const successRate = executeCount ? `${production.success_rate ?? 0}%` : "-";
+  const latestText = [
+    displayValue(production.latest_execute_status || production.status || "-"),
+    formatDateTime(production.latest_execute_finished_at || production.latest_execute_started_at),
+  ].filter(Boolean).join(" · ");
+  return `<section class="batch-production-overview ${escapeAttr(tone)} ${compact ? "compact" : ""}">
+    <div class="batch-production-head">
+      <div>
+        <span>v1.8 批量生产总览</span>
+        <strong>${escapeHtml(latestText || displayValue(production.status || "-"))}</strong>
+        <em>${escapeHtml(production.note || "暂无批量生产建议。")}</em>
+      </div>
+      ${recovery.game_ids?.length ? `<button class="button small" data-production-recovery type="button">${escapeHtml(recovery.label || "填入恢复队列")}</button>` : pill(production.status || "-", tone)}
+    </div>
+    <div class="batch-production-metrics">
+      ${productionMetric("近批次", `${runCount}/${executeCount}`, "")}
+      ${productionMetric("成功率", successRate, successRate === "100%" ? "good" : totals.failed ? "warn" : "")}
+      ${productionMetric("可恢复", String(recovery.game_ids?.length ?? 0), recovery.game_ids?.length ? "warn" : "good")}
+      ${productionMetric("重试救回", String(totals.recovered_by_retry ?? 0), totals.recovered_by_retry ? "good" : "")}
+    </div>
+    ${productionRecoveryMarkup(recovery)}
+    ${productionFailureMarkup(failures, compact)}
+  </section>`;
+}
+
+function productionMetric(label, value, tone = "") {
+  return `<div class="batch-production-metric ${escapeAttr(tone)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`;
+}
+
+function productionRecoveryMarkup(recovery = {}) {
+  const ids = recovery.game_ids ?? [];
+  if (!ids.length) {
+    return `<div class="batch-production-recovery good">
+      <div><b>恢复队列</b><span>最近执行批次没有未完成或失败项。</span></div>
+      ${pill("无需恢复", "good")}
+    </div>`;
+  }
+  const preview = ids.slice(0, 5).join(", ");
+  const rest = ids.length > 5 ? ` 等 ${ids.length} 款` : "";
+  return `<div class="batch-production-recovery warn">
+    <div>
+      <b>${escapeHtml(recovery.scope === "resume" ? "建议恢复未完成项" : "建议重跑失败项")}</b>
+      <span>${escapeHtml(`${preview}${rest}`)}</span>
+    </div>
+    <button class="button small" data-production-recovery type="button">填入队列</button>
+  </div>`;
+}
+
+function productionFailureMarkup(failures = [], compact = false) {
+  const visible = failures.slice(0, compact ? 3 : 5);
+  if (!visible.length) {
+    return `<div class="batch-production-failures empty">暂无重复失败游戏。</div>`;
+  }
+  return `<div class="batch-production-failures">
+    ${visible.map((item) => `<div class="batch-production-failure-row">
+      <div>
+        <b>${escapeHtml(item.game_id)}</b>
+        <span>${escapeHtml([`${item.fail_count} 次失败`, item.profiles?.join("/") || "", formatDateTime(item.latest_failed_at)].filter(Boolean).join(" · "))}</span>
+      </div>
+      <small>${escapeHtml(item.latest_error || "无错误尾巴")}</small>
+    </div>`).join("")}
+  </div>`;
 }
 
 function selectedBatchForDetail() {
@@ -1603,7 +2340,12 @@ function contextMode() {
 function renderContextPanel() {
   if (!elements.detailPanel) return;
   const mode = contextMode();
+  const nextKey = contextScrollKey(mode);
+  const previousKey = elements.detailPanel.dataset.contextScrollKey || "";
+  const previousMain = elements.detailPanel.querySelector(".context-main");
+  const previousScrollTop = previousMain?.scrollTop ?? 0;
   elements.detailPanel.dataset.context = mode;
+  elements.detailPanel.dataset.contextScrollKey = nextKey;
   const renderers = {
     workbench: renderWorkbenchContext,
     queue: renderQueueContext,
@@ -1614,6 +2356,20 @@ function renderContextPanel() {
   };
   elements.detailPanel.innerHTML = (renderers[mode] ?? renderWorkbenchContext)();
   bindContextPanelActions();
+  renderRunGate();
+  const nextMain = elements.detailPanel.querySelector(".context-main");
+  if (nextMain && previousKey === nextKey && previousScrollTop > 0) {
+    nextMain.scrollTop = previousScrollTop;
+    requestAnimationFrame(() => {
+      nextMain.scrollTop = previousScrollTop;
+    });
+  }
+}
+
+function contextScrollKey(mode) {
+  if (mode === "library" || mode === "review") return `${mode}:${state.selectedGameId || ""}`;
+  if (mode === "queue") return `${mode}:${state.selectedBatchHistoryIndex ?? ""}`;
+  return mode;
 }
 
 function contextShell({ kicker, title, subtitle, chips = [], body = "", footer = "", variant = "" }) {
@@ -1666,6 +2422,7 @@ function renderWorkbenchContext() {
 function renderQueueContext() {
   const batch = latestBatchRecord(state.status?.batch);
   const history = batchHistory();
+  const production = batchProductionOverview();
   const detailBatch = selectedBatchForDetail() ?? batch;
   const latest = state.jobs[0];
   const running = state.jobs.filter((job) => ["running", "cancelling"].includes(job.status));
@@ -1679,6 +2436,7 @@ function renderQueueContext() {
       ${contextMetric("跳过", detailBatch.totals?.skipped ?? 0, "")}
       ${contextMetric("计划", detailBatch.totals?.queued ?? tasks.length, "")}
     </div>
+    ${productionOverviewMarkup(production, { compact: true })}
     <section class="context-section">
       <div class="context-section-head"><span>${selectedBatchForDetail() ? "批次详情" : "最近批量"}</span><b>${escapeHtml(`${batchModeLabel(detailBatch.mode)} · ${displayValue(detailBatch.status || "-")} · ${detailBatch.profile_name || "-"}`)}</b></div>
       ${detailBatch.archive_dir ? `<p class="context-path">${escapeHtml(`归档：${detailBatch.archive_dir}`)}</p>` : ""}
@@ -1698,6 +2456,7 @@ function renderQueueContext() {
       <pre>${escapeHtml(latestJobOutput())}</pre>
     </section>
   ` : `
+    ${productionOverviewMarkup(production, { compact: true })}
     ${contextEmpty("还没有批量队列记录。先使用“预演队列”确认会跑哪些游戏。")}
     ${autoplayPreflightMarkup(preflight, { compact: true, copyable: false })}
     <section class="context-console"><b>任务输出</b><pre>${escapeHtml(latestJobOutput())}</pre></section>
@@ -1705,8 +2464,8 @@ function renderQueueContext() {
   return contextShell({
     kicker: "任务队列",
     title: selectedBatchForDetail() ? "批次详情" : (running.length ? `${running.length} 个任务运行中` : "任务队列"),
-    subtitle: latest ? `${latest.name}: ${displayValue(latest.status)}` : "用于检查批量运行、失败项和重试状态。",
-    chips: [[running.length ? "运行中" : "空闲", running.length ? "warn" : "good"]],
+    subtitle: latest ? `${latest.name}: ${displayValue(latest.status)}` : "批量、失败项、重试。",
+    chips: [[running.length ? "运行中" : "空闲", running.length ? "warn" : "good"], production ? [`${production.success_rate ?? 0}% 成功率`, production.tone] : ["无历史", "warn"]],
     body,
     footer: `<button class="button" data-panel-jump="runner" data-panel-view="workbench" data-panel-mode="queue" type="button">编辑队列</button>${detailBatch ? `<button class="button" data-context-export-batch-report type="button">导出报告</button>` : ""}<button class="button primary" data-panel-jump="results" data-panel-view="workbench" data-panel-mode="queue" type="button">查看列表</button>`,
     variant: "context-queue",
@@ -1719,7 +2478,7 @@ function renderLibraryContext() {
     return contextShell({
       kicker: "游戏库",
       title: "游戏库",
-      subtitle: "导入游戏后，这里会展示选中游戏的字段快照。",
+      subtitle: "字段快照。",
       body: contextEmpty("暂无游戏。"),
       variant: "context-library",
     });
@@ -1741,7 +2500,7 @@ function renderLibraryContext() {
   return contextShell({
     kicker: "游戏库",
     title: game.game_name || game.game_id,
-    subtitle: "字段、分类和英文介绍的快速检查入口。",
+    subtitle: "字段、分类、英文文案。",
     chips: [[health.reviewLabel, health.reviewTone], [game.evaluation_source || "AI 缺失", game.evaluation_source ? "good" : "bad"]],
     body,
     footer: contextFileActions(game),
@@ -1755,7 +2514,7 @@ function renderReviewContext() {
     return contextShell({
       kicker: "证据复核",
       title: "证据复核",
-      subtitle: "选择一款游戏后查看截图、视频、质量提示和人工复核。",
+      subtitle: "截图、视频、质量提示。",
       body: contextEmpty("暂无游戏。"),
       variant: "context-review",
     });
@@ -1766,37 +2525,33 @@ function renderReviewContext() {
 function renderConfigContext() {
   const config = state.status?.config ?? {};
   const feishu = config.feishu ?? {};
-  const gemini = config.gemini ?? {};
+  const ai = aiConfig(config);
+  const activeAi = activeAiProvider(ai);
   const steps = setupStepsData();
   const done = steps.filter((step) => step.done).length;
-  const fieldSummary = state.configWorkbench?.field_summary ?? {};
-  const taxonomySummary = state.configWorkbench?.taxonomy_summary ?? {};
-  const autoplay = state.status?.autoplay ?? {};
   const body = `
     <div class="context-metrics">
       ${contextMetric("进度", `${done}/${steps.length}`, done === steps.length ? "good" : "warn")}
-      ${contextMetric("Gemini", gemini.api_key_configured ? "已配置" : "待填", gemini.api_key_configured ? "good" : "bad")}
+      ${contextMetric("AI", activeAi?.api_key_configured ? aiProviderLabel(ai.active_provider) : "待填", activeAi?.api_key_configured ? "good" : "bad")}
       ${contextMetric("飞书", feishu.ready ? "已连接" : "待检", feishu.ready ? "good" : "warn")}
       ${contextMetric("截图", feishu.upload_screenshots ? "上传" : "本地", "")}
     </div>
     <section class="context-section">
-      <div class="context-section-head"><span>字段与标签库</span><b>${APP_VERSION_LABEL}</b></div>
+      <div class="context-section-head"><span>AI 模型</span><b>${escapeHtml(activeAi?.model || aiProviderLabel(ai.active_provider))}</b></div>
       <div class="context-metrics">
-        ${contextMetric("字段", String(fieldSummary.total_expected ?? "-"), "")}
-        ${contextMetric("缺失", String(fieldSummary.missing_remote ?? "-"), fieldSummary.missing_remote ? "bad" : "good")}
-        ${contextMetric("标签", String(taxonomySummary.option_count ?? "-"), taxonomySummary.option_count ? "good" : "warn")}
-        ${contextMetric("分类", String(taxonomySummary.category_count ?? "-"), "")}
+        ${contextMetric("供应商", aiProviderLabel(ai.active_provider), "")}
+        ${contextMetric("API Key", activeAi?.api_key_configured ? "已保存" : "待填", activeAi?.api_key_configured ? "good" : "bad")}
+        ${contextMetric("链路", activeAi?.runtime_ready ? "已接入" : "待接入", activeAi?.runtime_ready ? "good" : "warn")}
+        ${contextMetric("测试", activeAi?.latest_check_status === "ok" ? "通过" : "待测", activeAi?.latest_check_status === "ok" ? "good" : "warn")}
       </div>
     </section>
     <section class="context-section">
-      <div class="context-section-head"><span>AI 玩家</span><b>${escapeHtml(autoplay.current_strategy_label || "未配置")}</b></div>
+      <div class="context-section-head"><span>飞书连接</span><b>${escapeHtml(feishu.evaluation_table_id || "未指定表格")}</b></div>
       <div class="context-metrics">
-        ${contextMetric("档位", autoplay.current_profile || "-", "")}
-        ${contextMetric("动作", String(autoplay.latest_action_count ?? 0), autoplay.latest_action_count ? "good" : "warn")}
-        ${contextMetric("多模态", autoplay.multimodal_ready ? "已预留" : "未开启", autoplay.multimodal_ready ? "good" : "warn")}
-        ${contextMetric("消耗", "不新增", "good")}
+        ${contextMetric("凭证", feishu.app_id_configured && feishu.app_secret_configured ? "已保存" : "待填", feishu.app_id_configured && feishu.app_secret_configured ? "good" : "bad")}
+        ${contextMetric("目标表", feishu.app_token && feishu.evaluation_table_id ? "已填写" : "待填", feishu.app_token && feishu.evaluation_table_id ? "good" : "warn")}
+        ${contextMetric("连接", feishu.ready ? "通过" : "待检", feishu.ready ? "good" : "warn")}
       </div>
-      <p>${escapeHtml(autoplay.note || "当前自动试玩不逐帧调用 Gemini。")}</p>
     </section>
     <section class="context-section">
       <div class="context-section-head"><span>配置健康度</span><b>配置清单</b></div>
@@ -1813,7 +2568,7 @@ function renderConfigContext() {
     subtitle: "只显示状态，不回显已保存的密钥和 Secret。",
     chips: [[done === steps.length ? "就绪" : "待配置", done === steps.length ? "good" : "warn"]],
     body,
-    footer: `<button class="button" data-panel-job="quick-check" type="button">快速检查</button><button class="button primary" data-panel-jump="config" data-panel-view="config" type="button">保存前检查</button>`,
+    footer: `<button class="button" data-panel-job="quick-check" type="button">快速检查</button><button class="button primary" data-panel-jump="config" data-panel-view="config" type="button">去配置</button>`,
     variant: "context-config",
   });
 }
@@ -1825,7 +2580,7 @@ function renderGuideContext() {
     ["开通权限", "至少需要多维表格读写管理和 Wiki 节点读取。"],
     ["发布版本", "个人测试也需要发布，权限才会生效。"],
     ["添加文档应用", "在多维表格右上角文档应用中加入本应用。"],
-    ["检查字段", "回到工具里检查字段并同步标签库。"],
+    ["检查连接", "回到配置中心检查飞书凭证和目标表格是否可访问。"],
   ];
   const body = `
     <section class="context-section guide-mini">
@@ -1834,16 +2589,16 @@ function renderGuideContext() {
     </section>
     <section class="context-section">
       <div class="context-section-head"><span>关键提醒</span><b>个人飞书也适用</b></div>
-      <p>应用发布、权限开通、文档应用授权缺一不可。工具内只保存必要凭证，不会在界面回显 Secret。</p>
+      <p>发布、权限、文档应用缺一不可；Secret 不回显。</p>
     </section>
   `;
   return contextShell({
     kicker: "飞书",
     title: "接入向导",
-    subtitle: "给非技术使用者看的右侧检查清单。",
+    subtitle: "接入步骤和入口。",
     chips: [["内置", "good"]],
     body,
-    footer: `<button class="button" data-panel-jump="guide" data-panel-view="guide" type="button">查看图文向导</button><button class="button primary" data-panel-jump="config" data-panel-view="config" type="button">去配置</button>`,
+    footer: `<a class="button" href="https://open.feishu.cn/app" target="_blank" rel="noreferrer">开发者后台</a><button class="button" data-panel-jump="guide" data-panel-view="guide" type="button">查看图文向导</button><button class="button primary" data-panel-jump="config" data-panel-view="config" type="button">去配置</button>`,
     variant: "context-guide",
   });
 }
@@ -1876,6 +2631,7 @@ function reviewContextMarkup(game, full = false) {
       <div class="field-section-head">AI 字段快照</div>
       <div class="field-grid">${gameFieldPairs(game).map(([label, value]) => fieldItem(label, value || "-")).join("")}</div>
     </div>
+    ${taxonomyPreflightPanel(game)}
     ${reviewBoxMarkup(review, signals, reviewMeta)}
     <div class="copy-block">
       <h3>英文简介</h3>
@@ -2122,13 +2878,27 @@ function reviewBoxMarkup(review, signals, reviewMeta) {
   </div>`;
 }
 
+function taxonomyPreflightPanel(game) {
+  const preflight = game.taxonomy_preflight;
+  if (!preflight) return "";
+  const missing = preflight.missing_options ?? [];
+  const checked = preflight.checked_fields ?? [];
+  const rows = missing.length
+    ? missing.slice(0, 6).map((item) => fieldItem(item.field_name, `${item.option} · ${item.category}`)).join("")
+    : checked.slice(0, 6).map((item) => fieldItem(item.field_name, `${item.values?.length ?? 0} 项已匹配`)).join("");
+  return `<div class="field-section taxonomy-preflight ${escapeAttr(missing.length ? "warn" : "good")}">
+    <div class="field-section-head">飞书标签库预检 · ${escapeHtml(displayValue(game.feishu_preview_status || preflight.status))}</div>
+    <div class="field-grid">${rows || fieldItem("状态", "暂无可检查字段")}</div>
+  </div>`;
+}
+
 function gameFieldPairs(game) {
   const result = game.ai_en?.result ?? {};
   return [
     ["类型", result.game_type],
     ["细分", result.subgenre],
     ["题材", joinValue(result.theme)],
-    ["画风", result.art_style],
+    ["画风", joinValue(result.art_style)],
     ["人群", joinValue(result.target_audience)],
     ["操作", joinValue(result.controls)],
     ["方向", result.orientation],
@@ -2248,6 +3018,7 @@ function latestJobOutput() {
 function bindContextPanelActions() {
   const game = selectedGame();
   const signals = game ? qualitySignals(game) : [];
+  bindProductionRecoveryActions(elements.detailPanel);
   $("#saveReviewButton")?.addEventListener("click", () => saveReview(game.game_id));
   $("#fillReviewNotesButton")?.addEventListener("click", () => fillReviewNotes(signals));
   $$("[data-review-status]").forEach((button) => {
@@ -2362,9 +3133,6 @@ function renderJobs() {
   elements.cancelJobButton.disabled = active?.status === "cancelling";
   elements.cancelJobButton.textContent = active?.status === "cancelling" ? "取消中" : "取消任务";
   $(".shell").classList.toggle("console-expanded", state.consoleExpanded);
-  if (elements.sideJobOutput) {
-    elements.sideJobOutput.textContent = text ? text.split(/\r?\n/).slice(-4).join("\n") : fallback;
-  }
   if (contextMode() === "queue") renderContextPanel();
 }
 
@@ -2383,11 +3151,32 @@ function toggleConsole() {
 }
 
 async function saveConfig() {
+  const aiForm = elements.aiForm;
   const payload = {
-    gemini: {
-      apiKey: elements.geminiForm.apiKey.value.trim(),
-      model: elements.geminiForm.model.value,
-      proxy: elements.geminiForm.proxy.value.trim(),
+    ai: {
+      activeProvider: aiForm.activeProvider.value,
+      providers: {
+        gemini: {
+          apiKey: aiForm.geminiApiKey.value.trim(),
+          model: aiForm.geminiModel.value,
+          proxy: aiForm.geminiProxy.value.trim(),
+        },
+        openai_compatible: {
+          apiKey: aiForm.openaiApiKey.value.trim(),
+          baseUrl: aiForm.openaiBaseUrl.value.trim(),
+          model: aiForm.openaiModel.value.trim(),
+        },
+        deepseek: {
+          apiKey: aiForm.deepseekApiKey.value.trim(),
+          baseUrl: aiForm.deepseekBaseUrl.value.trim(),
+          model: aiForm.deepseekModel.value.trim(),
+        },
+        openrouter: {
+          apiKey: aiForm.openrouterApiKey.value.trim(),
+          baseUrl: aiForm.openrouterBaseUrl.value.trim(),
+          model: aiForm.openrouterModel.value.trim(),
+        },
+      },
     },
     feishu: {
       appId: elements.feishuForm.appId.value.trim(),
@@ -2399,7 +3188,10 @@ async function saveConfig() {
     },
   };
   await fetchJson("/api/config", { method: "POST", body: JSON.stringify(payload) });
-  elements.geminiForm.apiKey.value = "";
+  aiForm.geminiApiKey.value = "";
+  aiForm.openaiApiKey.value = "";
+  aiForm.deepseekApiKey.value = "";
+  aiForm.openrouterApiKey.value = "";
   elements.feishuForm.appSecret.value = "";
   elements.feishuForm.bitableUrl.value = "";
   await refreshStatus();
@@ -2419,7 +3211,13 @@ async function importUrls() {
 }
 
 async function runSelectedGame() {
-  if (!state.selectedGameId) return;
+  const gate = buildRunGate({ batch: false });
+  if (!gate.canRun) {
+    appendConsole(`暂不能运行：${gate.detail}`);
+    renderRunGate();
+    renderNextStep();
+    return;
+  }
   const profileName = $("#runProfile").value;
   const profile = state.status?.run_profiles?.profiles?.[profileName] ?? {};
   await startJob("run-game", {
@@ -2474,6 +3272,62 @@ function fillBatchSelected() {
   if (!state.selectedGameId) return;
   elements.batchGameIds.value = state.selectedGameId;
   renderBatchSummary();
+  renderAutoplayPreflight();
+  renderContextPanel();
+}
+
+function removeBatchSelected() {
+  if (!state.selectedGameId) return;
+  const ids = selectedBatchGameIds();
+  if (!ids.length) {
+    appendConsole("当前队列为空，不需要移除。");
+    updateQueueControls();
+    return;
+  }
+  const nextIds = ids.filter((gameId) => gameId !== state.selectedGameId);
+  elements.batchGameIds.value = nextIds.join("\n");
+  renderBatchSummary();
+  renderAutoplayPreflight();
+  renderContextPanel();
+  appendConsole(nextIds.length === ids.length ? `队列里没有 ${state.selectedGameId}` : `已从队列移除：${state.selectedGameId}`);
+}
+
+function clearBatchQueue() {
+  elements.batchGameIds.value = "";
+  renderBatchSummary();
+  renderAutoplayPreflight();
+  renderContextPanel();
+  appendConsole("已清空当前队列输入，不会删除任何证据、报告或飞书记录。");
+}
+
+function updateQueueControls() {
+  const ids = selectedBatchGameIds();
+  const hasQueue = ids.length > 0;
+  const selectedInQueue = Boolean(state.selectedGameId && ids.includes(state.selectedGameId));
+  if (elements.removeBatchSelectedButton) {
+    elements.removeBatchSelectedButton.disabled = !selectedInQueue;
+    elements.removeBatchSelectedButton.title = hasQueue
+      ? selectedInQueue
+        ? `从当前队列移除 ${state.selectedGameId}，不删除游戏库记录`
+        : "当前选中的游戏不在队列里"
+      : "当前队列为空，没有可移除项";
+  }
+  if (elements.clearBatchQueueButton) {
+    elements.clearBatchQueueButton.disabled = !hasQueue;
+    elements.clearBatchQueueButton.title = hasQueue
+      ? "清空当前队列输入，不删除游戏、证据、报告或批次历史"
+      : "当前队列为空，没有可清空项";
+  }
+}
+
+function removeBatchGameId(gameId) {
+  const ids = selectedBatchGameIds();
+  const nextIds = ids.filter((item) => item !== gameId);
+  elements.batchGameIds.value = nextIds.join("\n");
+  renderBatchSummary();
+  renderAutoplayPreflight();
+  renderContextPanel();
+  appendConsole(nextIds.length === ids.length ? `队列里没有 ${gameId}` : `已从队列移除：${gameId}`);
 }
 
 function fillBatchFailed(batch = latestBatchRecord(state.status?.batch)) {
@@ -2496,6 +3350,27 @@ function fillBatchResume(batch = latestBatchRecord(state.status?.batch)) {
   elements.batchGameIds.value = pending.join("\n");
   elements.batchGameIds.scrollIntoView({ block: "center" });
   renderBatchSummary();
+}
+
+function fillProductionRecovery() {
+  const recovery = batchProductionOverview()?.recovery_plan ?? {};
+  const ids = recovery.game_ids ?? [];
+  if (!ids.length) {
+    appendConsole("当前没有需要恢复的队列。");
+    return;
+  }
+  elements.batchGameIds.value = ids.join("\n");
+  elements.batchGameIds.scrollIntoView({ block: "center" });
+  renderBatchSummary();
+  renderAutoplayPreflight();
+  renderContextPanel();
+  appendConsole(`已填入${recovery.scope === "resume" ? "未完成项" : "失败项"}：${ids.join(", ")}`);
+}
+
+function bindProductionRecoveryActions(root = document) {
+  root?.querySelectorAll("[data-production-recovery]").forEach((button) => {
+    button.addEventListener("click", fillProductionRecovery);
+  });
 }
 
 function fillBatchHistoryFailed(index) {
@@ -2613,7 +3488,9 @@ function buildAutoplayPreflight() {
   const scope = autoplayPreflightScope();
   const estimate = runEstimateForCount(scope.count, profileName, profile);
   const config = state.status?.config ?? {};
-  const geminiReady = Boolean(config.gemini?.api_key_configured);
+  const ai = aiConfig(config);
+  const activeAi = activeAiProvider(ai);
+  const activeAiReady = aiRuntimeReady(activeAi);
   const feishuReady = Boolean(config.feishu?.ready);
   const aiMode = $("#aiMode")?.value || profileAiMode(profile);
   const wantsFeishu = $("#writeFeishu")?.checked !== false;
@@ -2638,8 +3515,11 @@ function buildAutoplayPreflight() {
   if (strategy === "legacy_center_tap") {
     items.push(preflightItem("info", "安全点击偏保守", "兼容性高，但遇到拖拽、教程和弹窗时可能采不到核心玩法。"));
   }
-  if (aiMode === "live" && !geminiReady) {
-    items.push(preflightItem("bad", "Gemini 尚未配置", "会回退或失败。先到配置中心填 API Key，或把 AI 模式改成本地兜底。"));
+  if (aiMode === "live" && !activeAiReady) {
+    const reason = activeAi?.api_key_configured && !activeAi?.runtime_ready
+      ? `${aiProviderLabel(ai.active_provider)} 已保存，但评测链路暂未接入该供应商。`
+      : `${aiProviderLabel(ai.active_provider)} 尚未配置 API Key。`;
+    items.push(preflightItem("bad", "AI 模型尚未可用", `${reason} 当前生产评测建议先使用 Gemini，或把 AI 模式改成本地兜底。`));
   }
   if (wantsFeishu && !feishuReady) {
     items.push(preflightItem("warn", "飞书未完全就绪", "本地证据仍会生成，但写入多维表格可能失败。"));
@@ -2677,7 +3557,7 @@ function buildAutoplayPreflight() {
     `档位：${profileName || "自定义"}`,
     `策略：${strategyLabel} (${strategy})`,
     `预计基础耗时：${estimate ? formatDuration(estimate.totalMs) : "-"}`,
-    `AI 模式：${aiMode === "live" ? "Gemini" : "本地兜底"}`,
+    `AI 模式：${aiMode === "live" ? aiProviderLabel(ai.active_provider) : "本地兜底"}`,
     `飞书写入：${wantsFeishu ? "开启" : "关闭"}`,
     ...items.map((item) => `- ${item.title}: ${item.detail}`),
   ].join("\n");
@@ -2766,6 +3646,13 @@ function batchEstimateMarkup(estimate) {
 }
 
 async function runBatch(execute) {
+  const gate = execute ? buildRunGate({ batch: true }) : buildDryRunGate();
+  if (!gate.canRun) {
+    appendConsole(`暂不能${execute ? "运行" : "预演"}：${gate.detail}`);
+    renderRunGate();
+    renderNextStep();
+    return;
+  }
   const profileName = $("#runProfile").value;
   const profile = state.status?.run_profiles?.profiles?.[profileName] ?? {};
   const gameIds = selectedBatchGameIds();
@@ -2851,6 +3738,7 @@ function displayTaskValue(value) {
 }
 
 function displayValue(value) {
+  if (value === "taxonomy_review_required") return "标签待复核";
   const labels = {
     collected: "已采集",
     partial_collected: "部分采集",
@@ -2875,6 +3763,17 @@ function displayValue(value) {
     skipped: "已跳过",
     skipped_duplicate: "重复跳过",
     gemini: "Gemini",
+    needs_recovery: "需要恢复",
+    watch: "需关注",
+    ready: "可生产",
+    created: "已创建",
+    partial_failed: "部分失败",
+    nothing_to_create: "无需新增",
+    confirmation_required: "待确认",
+    empty: "无历史",
+    needs_confirmation: "需二次确认",
+    blocked_type_conflict: "类型冲突",
+    needs_feishu_config: "待配置飞书",
   };
   const key = String(value ?? "");
   return labels[key] ?? value;
@@ -2890,9 +3789,9 @@ function batchModeLabel(value) {
 }
 
 function statusTone(value) {
-  if (["collected", "ready_to_write", "updated", "written", "success", "ready_for_write_test"].includes(value)) return "good";
-  if (["partial_collected", "success_with_failures", "success_with_review", "dry_run_ready", "template_ready", "cancelling", "cancelled"].includes(value)) return "warn";
-  if (!value || value === "missing" || value === "failed" || value === "invalid") return "bad";
+  if (["collected", "ready_to_write", "updated", "written", "success", "ready_for_write_test", "ready"].includes(value)) return "good";
+  if (["partial_collected", "success_with_failures", "success_with_review", "dry_run_ready", "taxonomy_review_required", "template_ready", "cancelling", "cancelled", "needs_recovery", "empty"].includes(value)) return "warn";
+  if (!value || value === "missing" || value === "failed" || value === "invalid" || value === "watch") return "bad";
   return "";
 }
 

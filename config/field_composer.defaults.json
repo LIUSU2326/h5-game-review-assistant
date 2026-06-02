@@ -1,0 +1,79 @@
+{
+  "version": "1.0",
+  "updated_at": "",
+  "categories": [
+    {
+      "id": "basic_info",
+      "label_zh": "基础信息",
+      "table_name": "基础信息",
+      "description": "游戏身份、链接和基础状态。",
+      "field_ids": ["game_id", "game_name", "game_url", "status", "evaluation_source"]
+    },
+    {
+      "id": "taxonomy_labels",
+      "label_zh": "分类标签",
+      "table_name": "分类标签",
+      "description": "玩法、题材、画风、人群、特色和操作等可维护选项。",
+      "field_ids": ["game_id", "game_name", "target_audience", "game_type", "subgenre", "theme", "art_style", "feature_tags", "controls", "orientation"]
+    },
+    {
+      "id": "collection_quality",
+      "label_zh": "采集质量",
+      "table_name": "采集质量",
+      "description": "设备兼容、加载速度、教程、音频和响应式信息。",
+      "field_ids": ["game_id", "game_name", "device_compatibility", "package_size_mb", "slow_4g_load_time_ms", "responsive_layout", "tutorial", "bgm"]
+    },
+    {
+      "id": "content_copy",
+      "label_zh": "内容文案",
+      "table_name": "内容文案",
+      "description": "英文介绍、特色、玩法说明和 FAQ。",
+      "field_ids": ["game_id", "game_name", "product_overview", "features", "how_to_play", "faq"]
+    },
+    {
+      "id": "review_evidence",
+      "label_zh": "证据复核",
+      "table_name": "证据复核",
+      "description": "人工复核、截图附件、证据目录和标签待补充项。",
+      "field_ids": ["game_id", "game_name", "review_status", "review_notes", "needs_taxonomy_review", "taxonomy_suggestions", "evidence_folder", "screenshots", "screenshot_attachments"]
+    }
+  ],
+  "fields": [
+    { "id": "game_id", "field_name": "Game ID", "label_zh": "游戏 ID", "source_path": "game.game_id", "feishu_type": "text", "required": true },
+    { "id": "game_name", "field_name": "Game Name", "label_zh": "游戏名称", "source_path": "game.game_name", "feishu_type": "text", "required": true },
+    { "id": "game_url", "field_name": "Game URL", "label_zh": "游戏链接", "source_path": "game.url", "feishu_type": "url", "required": true },
+    { "id": "status", "field_name": "Status", "label_zh": "采集状态", "source_path": "collection.status", "feishu_type": "single_select", "required": true },
+    { "id": "evaluation_source", "field_name": "Evaluation Source", "label_zh": "AI 来源", "source_path": "ai.evaluation_source", "feishu_type": "single_select", "required": true },
+    { "id": "page_title", "field_name": "Page Title", "label_zh": "页面标题", "source_path": "collection.page_title", "feishu_type": "text", "required": true },
+    { "id": "meta_description", "field_name": "Meta Description", "label_zh": "网页描述", "source_path": "collection.meta_description", "feishu_type": "text", "required": false },
+    { "id": "keywords", "field_name": "Keywords", "label_zh": "关键词", "source_path": "collection.keywords", "feishu_type": "text", "required": false },
+    { "id": "device_compatibility", "field_name": "Device Compatibility", "label_zh": "设备兼容", "source_path": "ai.en.device_compatibility", "feishu_type": "text", "required": true },
+    { "id": "target_audience", "field_name": "Target Audience", "label_zh": "目标人群", "source_path": "ai.en.target_audience", "feishu_type": "multi_select", "required": true, "option_category": "audiences" },
+    { "id": "game_mode", "field_name": "Game Mode", "label_zh": "游戏模式", "source_path": "ai.en.game_mode", "feishu_type": "text", "required": true },
+    { "id": "game_type", "field_name": "Game Type", "label_zh": "玩法类型", "source_path": "ai.en.game_type", "feishu_type": "single_select", "required": true, "option_category": "gameplay_types" },
+    { "id": "subgenre", "field_name": "Subgenre", "label_zh": "细分玩法", "source_path": "ai.en.subgenre", "feishu_type": "single_select", "required": true, "option_category": "gameplay_types" },
+    { "id": "theme", "field_name": "Theme", "label_zh": "题材", "source_path": "ai.en.theme", "feishu_type": "multi_select", "required": true, "option_category": "themes" },
+    { "id": "art_style", "field_name": "Art Style", "label_zh": "画风", "source_path": "ai.en.art_style", "feishu_type": "multi_select", "required": true, "option_category": "art_styles" },
+    { "id": "feature_tags", "field_name": "Feature Tags", "label_zh": "特色标签", "source_path": "ai.en.feature_tags", "feishu_type": "multi_select", "required": true, "option_category": "feature_tags" },
+    { "id": "package_size_mb", "field_name": "Package Size MB", "label_zh": "包体大小 MB", "source_path": "collection.package_size_estimate_mb.content_length_mb", "feishu_type": "number", "required": true },
+    { "id": "slow_4g_load_time_ms", "field_name": "Slow 4G Load Time MS", "label_zh": "慢 4G 加载耗时", "source_path": "collection.slow_4g_load_ms.domcontentloaded_ms", "feishu_type": "number", "required": true },
+    { "id": "orientation", "field_name": "Orientation", "label_zh": "屏幕方向", "source_path": "ai.en.orientation", "feishu_type": "single_select", "required": true },
+    { "id": "tutorial", "field_name": "Tutorial", "label_zh": "教程形式", "source_path": "ai.en.tutorial", "feishu_type": "text", "required": true },
+    { "id": "bgm", "field_name": "BGM", "label_zh": "背景音乐", "source_path": "ai.en.bgm", "feishu_type": "single_select", "required": false },
+    { "id": "responsive_layout", "field_name": "Responsive Layout", "label_zh": "响应式布局", "source_path": "ai.en.responsive_layout", "feishu_type": "text", "required": true },
+    { "id": "controls", "field_name": "Controls", "label_zh": "操作方式", "source_path": "ai.en.controls", "feishu_type": "multi_select", "required": true, "option_category": "controls" },
+    { "id": "product_overview", "field_name": "Product Overview", "label_zh": "产品介绍", "source_path": "ai.en.product_overview_150_words", "feishu_type": "long_text", "required": true },
+    { "id": "features", "field_name": "Features", "label_zh": "特色说明", "source_path": "ai.en.features", "feishu_type": "long_text", "required": true },
+    { "id": "how_to_play", "field_name": "How To Play", "label_zh": "玩法说明", "source_path": "ai.en.how_to_play", "feishu_type": "long_text", "required": true },
+    { "id": "faq", "field_name": "FAQ", "label_zh": "FAQ", "source_path": "ai.en.faq", "feishu_type": "long_text", "required": true },
+    { "id": "needs_taxonomy_review", "field_name": "Needs Taxonomy Review", "label_zh": "需要标签复核", "source_path": "derived.needs_taxonomy_review", "feishu_type": "checkbox", "required": true },
+    { "id": "taxonomy_suggestions", "field_name": "Taxonomy Suggestions", "label_zh": "标签建议", "source_path": "ai.en.taxonomy_new_suggestions", "feishu_type": "long_text", "required": false },
+    { "id": "review_status", "field_name": "Review Status", "label_zh": "复核状态", "source_path": "review.status_label_en", "feishu_type": "single_select", "required": false },
+    { "id": "review_notes", "field_name": "Review Notes", "label_zh": "复核备注", "source_path": "review.notes", "feishu_type": "long_text", "required": false },
+    { "id": "review_updated_at", "field_name": "Review Updated At", "label_zh": "复核更新时间", "source_path": "review.updated_at", "feishu_type": "text", "required": false },
+    { "id": "evidence_folder", "field_name": "Evidence Folder", "label_zh": "证据目录", "source_path": "derived.evidence_folder", "feishu_type": "text", "required": true },
+    { "id": "screenshots", "field_name": "Screenshots", "label_zh": "截图路径", "source_path": "derived.screenshot_paths", "feishu_type": "long_text", "required": true },
+    { "id": "screenshot_attachments", "field_name": "Screenshot Attachments", "label_zh": "截图附件", "source_path": "derived.screenshot_uploads", "feishu_type": "attachment", "required": false },
+    { "id": "trace_files", "field_name": "Trace Files", "label_zh": "Trace 文件", "source_path": "derived.trace_paths", "feishu_type": "long_text", "required": false }
+  ]
+}

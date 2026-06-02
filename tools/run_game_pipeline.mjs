@@ -80,35 +80,48 @@ try {
 
   await step("feishu_preview", nodeScript("tools/build_feishu_payload_preview.mjs", "--game-id", gameId));
   await step("html_report", nodeScript("tools/build_local_report.mjs", "--game-id", gameId));
+  const feishuPayload = await readJsonOrNull(path.join(gameDir, "feishu_payload_preview.json"));
+  const usesFieldComposerTables = Array.isArray(feishuPayload?.category_records) && feishuPayload.category_records.length > 0;
 
-  const fieldsCheck = await step("feishu_fields_check", nodeScript("tools/check_feishu_table_fields.mjs"), { allowFailure: true });
-  if (fieldsCheck.exit_code !== 0) {
-    if (writeFeishu) {
-      throw new Error("Feishu fields check command failed.");
-    }
-    skip("feishu_create_fields", "field check unavailable; write disabled");
-    skip("feishu_write_dry_run", "field check unavailable; write disabled");
-    skip("feishu_write_apply", "write disabled; Feishu config unavailable");
-  } else {
-    const fieldsReport = await readJsonOrNull(path.join(root, "config", "feishu_table_fields_check.json"));
-    if (fieldsReport?.status === "missing_fields" && createFields) {
-      await step("feishu_create_fields", nodeScript("tools/create_feishu_fields.mjs", "--apply"));
-      await step("feishu_fields_recheck", nodeScript("tools/check_feishu_table_fields.mjs"));
-    } else if (fieldsReport?.status === "missing_fields") {
-      skip("feishu_create_fields", "missing fields found but --create-fields false was set");
-    } else {
-      skip("feishu_create_fields", `field status: ${fieldsReport?.status ?? "unknown"}`);
-    }
-
+  if (usesFieldComposerTables) {
+    skip("feishu_fields_check", "field composer category tables are checked from the configuration page");
+    skip("feishu_create_fields", "field composer schema creation is confirmed in the configuration page");
     await step("feishu_write_dry_run", nodeScript("tools/write_feishu_record.mjs", "--game-id", gameId));
     if (writeFeishu) {
       await step("feishu_write_apply", nodeScript("tools/write_feishu_record.mjs", "--game-id", gameId, "--apply"));
     } else {
       skip("feishu_write_apply", "write disabled; pass --write-feishu to update Feishu");
     }
+  } else {
+    const fieldsCheck = await step("feishu_fields_check", nodeScript("tools/check_feishu_table_fields.mjs"), { allowFailure: true });
+    if (fieldsCheck.exit_code !== 0) {
+      if (writeFeishu) {
+        throw new Error("Feishu fields check command failed.");
+      }
+      skip("feishu_create_fields", "field check unavailable; write disabled");
+      skip("feishu_write_dry_run", "field check unavailable; write disabled");
+      skip("feishu_write_apply", "write disabled; Feishu config unavailable");
+    } else {
+      const fieldsReport = await readJsonOrNull(path.join(root, "config", "feishu_table_fields_check.json"));
+      if (fieldsReport?.status === "missing_fields" && createFields) {
+        await step("feishu_create_fields", nodeScript("tools/create_feishu_fields.mjs", "--apply"));
+        await step("feishu_fields_recheck", nodeScript("tools/check_feishu_table_fields.mjs"));
+      } else if (fieldsReport?.status === "missing_fields") {
+        skip("feishu_create_fields", "missing fields found but --create-fields false was set");
+      } else {
+        skip("feishu_create_fields", `field status: ${fieldsReport?.status ?? "unknown"}`);
+      }
+
+      await step("feishu_write_dry_run", nodeScript("tools/write_feishu_record.mjs", "--game-id", gameId));
+      if (writeFeishu) {
+        await step("feishu_write_apply", nodeScript("tools/write_feishu_record.mjs", "--game-id", gameId, "--apply"));
+      } else {
+        skip("feishu_write_apply", "write disabled; pass --write-feishu to update Feishu");
+      }
+    }
   }
 
-  await step("workbench", nodeScript("tools/build_poc_workbench.mjs"));
+  skip("workbench", "legacy POC workbench disabled in v1.8; use the desktop app and per-game report.html instead");
   const collectionReport = await readJsonOrNull(path.join(gameDir, "report.zh.json"));
   if (collectionReport?.status && collectionReport.status !== "collected") {
     run.status = "success_with_review";

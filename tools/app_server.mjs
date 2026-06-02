@@ -18,6 +18,10 @@ const appEnvExamplePath = path.join(appRoot, ".env.example");
 const feishuPath = path.join(dataRoot, "config", "feishu.local.json");
 const feishuTemplatePath = path.join(dataRoot, "config", "feishu.local.template.json");
 const appFeishuTemplatePath = path.join(appRoot, "config", "feishu.local.template.json");
+const fieldComposerPath = path.join(dataRoot, "config", "field_composer.json");
+const fieldComposerDefaultsPath = path.join(appRoot, "config", "field_composer.defaults.json");
+const fieldComposerDiffPath = path.join(dataRoot, "config", "field_composer_diff.json");
+const fieldComposerApplyPath = path.join(dataRoot, "config", "field_composer_apply_result.json");
 const samplesPath = path.join(dataRoot, "samples", "games.csv");
 const taxonomySuggestionReviewPath = path.join(dataRoot, "config", "taxonomy_suggestion_review.json");
 const taxonomyWritebackPreviewPath = path.join(dataRoot, "config", "taxonomy_writeback_preview.json");
@@ -65,6 +69,7 @@ async function initializeDataRoot() {
 
   await copyFileIfMissing(appEnvExamplePath, envExamplePath);
   await copyFileIfMissing(appFeishuTemplatePath, feishuTemplatePath);
+  await copyFileIfMissing(fieldComposerDefaultsPath, fieldComposerPath);
   await copyFileIfMissing(path.join(appRoot, "config", "run_profiles.json"), path.join(dataRoot, "config", "run_profiles.json"));
   await copyFileIfMissing(path.join(appRoot, "config", "feishu.example.json"), path.join(dataRoot, "config", "feishu.example.json"));
   await copyFileIfMissing(path.join(appRoot, "config", "feishu_onboarding_checklist.json"), path.join(dataRoot, "config", "feishu_onboarding_checklist.json"));
@@ -107,6 +112,33 @@ async function handleApi(request, response, url) {
 
   if (request.method === "GET" && url.pathname === "/api/config-workbench") {
     sendJson(response, 200, await buildConfigWorkbench());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/field-composer") {
+    sendJson(response, 200, await buildFieldComposerWorkbench());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/field-composer") {
+    const body = await readBody(request);
+    sendJson(response, 200, await saveFieldComposer(body));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/field-composer/reset") {
+    sendJson(response, 200, await resetFieldComposer());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/field-composer/diff") {
+    sendJson(response, 200, await buildAndStoreFieldComposerDiff());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/field-composer/apply") {
+    const body = await readBody(request);
+    sendJson(response, 200, await applyFieldComposerSchema(body));
     return;
   }
 
@@ -219,8 +251,13 @@ async function buildStatus() {
   const latestBatchRun = await readJsonOrNull(path.join(dataRoot, "batch", "last_run.json"));
   const latestBatchDryRun = await readJsonOrNull(path.join(dataRoot, "batch", "dry_run.json"));
   const batchHistory = await readBatchHistory();
+  const latestBatchRunSummary = summarizeBatchRun(latestBatchRun);
+  const latestBatchDryRunSummary = summarizeBatchRun(latestBatchDryRun);
+  const aiStatus = buildAiConfigStatus(env, geminiCheck);
+  const activeAi = aiStatus.providers[aiStatus.active_provider] ?? aiStatus.providers.gemini;
   const ready = Boolean(
-    env.GEMINI_API_KEY &&
+    activeAi?.api_key_configured &&
+      activeAi?.runtime_ready &&
       feishu?.app_id &&
       feishu?.app_secret &&
       feishu?.bitable?.app_token &&
@@ -232,12 +269,8 @@ async function buildStatus() {
     app_root: appRoot,
     data_root: dataRoot,
     config: {
-      gemini: {
-        api_key_configured: Boolean(env.GEMINI_API_KEY),
-        model: env.GEMINI_MODEL ?? "gemini-2.5-flash-lite",
-        proxy: env.GEMINI_PROXY ?? "",
-        latest_check_status: geminiCheck?.status ?? "",
-      },
+      ai: aiStatus,
+      gemini: aiStatus.providers.gemini,
       feishu: {
         ready,
         app_id_configured: Boolean(feishu?.app_id),
@@ -261,13 +294,56 @@ async function buildStatus() {
     },
     autoplay: buildAutoplayWorkbench({ env, runProfiles, games }),
     batch: {
-      last_run: summarizeBatchRun(latestBatchRun),
-      dry_run: summarizeBatchRun(latestBatchDryRun),
+      last_run: latestBatchRunSummary,
+      dry_run: latestBatchDryRunSummary,
       history: batchHistory,
+      production: buildBatchProductionOverview({
+        history: batchHistory,
+        latestRun: latestBatchRunSummary,
+        latestDryRun: latestBatchDryRunSummary,
+        samples,
+      }),
     },
     games,
     summary: {
-      latest_note: ready ? "配置已就绪，可以运行单款或批量评测" : "请先补齐 Gemini 和飞书配置",
+      latest_note: ready ? "配置已就绪，可以运行单款或批量评测" : "请先补齐 AI 模型和飞书配置",
+    },
+  };
+}
+
+function buildAiConfigStatus(env, geminiCheck) {
+  const activeProvider = env.AI_PROVIDER || "gemini";
+  return {
+    active_provider: activeProvider,
+    providers: {
+      gemini: {
+        api_key_configured: Boolean(env.GEMINI_API_KEY),
+        model: env.GEMINI_MODEL ?? "gemini-2.5-flash-lite",
+        proxy: env.GEMINI_PROXY ?? "",
+        latest_check_status: geminiCheck?.status ?? "",
+        runtime_ready: true,
+      },
+      openai_compatible: {
+        api_key_configured: Boolean(env.OPENAI_API_KEY),
+        model: env.OPENAI_MODEL ?? "",
+        base_url: env.OPENAI_BASE_URL ?? "",
+        latest_check_status: "",
+        runtime_ready: false,
+      },
+      deepseek: {
+        api_key_configured: Boolean(env.DEEPSEEK_API_KEY),
+        model: env.DEEPSEEK_MODEL ?? "deepseek-chat",
+        base_url: env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+        latest_check_status: "",
+        runtime_ready: false,
+      },
+      openrouter: {
+        api_key_configured: Boolean(env.OPENROUTER_API_KEY),
+        model: env.OPENROUTER_MODEL ?? "",
+        base_url: env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
+        latest_check_status: "",
+        runtime_ready: false,
+      },
     },
   };
 }
@@ -519,6 +595,564 @@ async function buildConfigWorkbench() {
     },
     taxonomy_categories: taxonomyCategories,
   };
+}
+
+async function buildFieldComposerWorkbench() {
+  const composer = await readFieldComposer();
+  const lastDiff = await readJsonOrNull(fieldComposerDiffPath);
+  const lastApply = await readJsonOrNull(fieldComposerApplyPath);
+  return {
+    generated_at: new Date().toISOString(),
+    composer,
+    summary: summarizeFieldComposer(composer),
+    last_diff: lastDiff,
+    last_apply: lastApply,
+  };
+}
+
+async function readFieldComposer() {
+  const defaults = await readJsonOrNull(fieldComposerDefaultsPath);
+  const saved = await readJsonOrNull(fieldComposerPath);
+  const source = saved?.fields?.length ? saved : defaults;
+  const normalized = normalizeFieldComposer(source ?? { categories: [], fields: [] }, defaults ?? {});
+  if (!(await fileExists(fieldComposerPath))) {
+    await fs.mkdir(path.dirname(fieldComposerPath), { recursive: true });
+    await fs.writeFile(fieldComposerPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  }
+  return normalized;
+}
+
+function normalizeFieldComposer(source, defaults = {}) {
+  const defaultFieldsById = new Map((defaults.fields ?? []).map((field) => [field.id, field]));
+  const fields = (source.fields ?? defaults.fields ?? []).map((field) => {
+    const fallback = defaultFieldsById.get(field.id) ?? {};
+    return {
+      ...fallback,
+      ...field,
+      id: String(field.id ?? fallback.id ?? "").trim(),
+      field_name: String(field.field_name ?? fallback.field_name ?? "").trim(),
+      label_zh: String(field.label_zh ?? fallback.label_zh ?? field.field_name ?? "").trim(),
+      source_path: String(field.source_path ?? fallback.source_path ?? "").trim(),
+      feishu_type: normalizeFeishuFieldType(field.feishu_type ?? fallback.feishu_type),
+      required: Boolean(field.required ?? fallback.required),
+      option_category: String(field.option_category ?? fallback.option_category ?? "").trim(),
+    };
+  }).filter((field) => field.id && field.field_name);
+  const fieldIds = new Set(fields.map((field) => field.id));
+  const categories = (source.categories ?? defaults.categories ?? []).map((category) => ({
+    id: String(category.id ?? "").trim(),
+    label_zh: String(category.label_zh ?? category.table_name ?? "").trim(),
+    table_name: String(category.table_name ?? category.label_zh ?? "").trim(),
+    description: String(category.description ?? "").trim(),
+    field_ids: [...new Set((category.field_ids ?? []).map((id) => String(id).trim()).filter((id) => fieldIds.has(id)))],
+  })).filter((category) => category.id && category.table_name);
+  return {
+    version: source.version ?? defaults.version ?? "1.0",
+    updated_at: source.updated_at ?? "",
+    categories,
+    fields,
+  };
+}
+
+async function saveFieldComposer(body) {
+  const current = await readFieldComposer();
+  const incoming = normalizeFieldComposer(body?.composer ?? body ?? current, current);
+  incoming.updated_at = new Date().toISOString();
+  await fs.mkdir(path.dirname(fieldComposerPath), { recursive: true });
+  await fs.writeFile(fieldComposerPath, `${JSON.stringify(incoming, null, 2)}\n`, "utf8");
+  await clearFieldComposerComputedState();
+  return buildFieldComposerWorkbench();
+}
+
+async function resetFieldComposer() {
+  const defaults = normalizeFieldComposer(await readJsonOrNull(fieldComposerDefaultsPath) ?? {});
+  defaults.updated_at = new Date().toISOString();
+  await fs.mkdir(path.dirname(fieldComposerPath), { recursive: true });
+  await fs.writeFile(fieldComposerPath, `${JSON.stringify(defaults, null, 2)}\n`, "utf8");
+  await clearFieldComposerComputedState();
+  return buildFieldComposerWorkbench();
+}
+
+async function clearFieldComposerComputedState() {
+  await Promise.all([
+    fs.rm(fieldComposerDiffPath, { force: true }).catch(() => null),
+    fs.rm(fieldComposerApplyPath, { force: true }).catch(() => null),
+  ]);
+}
+
+function summarizeFieldComposer(composer) {
+  const assigned = new Set(composer.categories.flatMap((category) => category.field_ids ?? []));
+  const activeFields = composer.fields.filter((field) => assigned.has(field.id));
+  const fieldsById = new Map(composer.fields.map((field) => [field.id, field]));
+  const activeFieldRefs = composer.categories
+    .flatMap((category) => category.field_ids ?? [])
+    .map((id) => fieldsById.get(id))
+    .filter(Boolean);
+  const activeFieldSlots = composer.categories.reduce((sum, category) => sum + (category.field_ids ?? []).length, 0);
+  return {
+    category_count: composer.categories.length,
+    total_fields: composer.fields.length,
+    active_fields: activeFieldSlots,
+    unique_active_fields: activeFields.length,
+    inactive_fields: Math.max(0, composer.fields.length - activeFields.length),
+    multi_select_fields: activeFieldRefs.filter((field) => field.feishu_type === "multi_select").length,
+    single_select_fields: activeFieldRefs.filter((field) => field.feishu_type === "single_select").length,
+    tables: composer.categories.map((category) => ({
+      id: category.id,
+      table_name: category.table_name,
+      field_count: (category.field_ids ?? []).length,
+    })),
+  };
+}
+
+async function buildAndStoreFieldComposerDiff() {
+  const composer = await readFieldComposer();
+  const diff = await buildFieldComposerDiff(composer);
+  await fs.mkdir(path.dirname(fieldComposerDiffPath), { recursive: true });
+  await fs.writeFile(fieldComposerDiffPath, `${JSON.stringify(diff, null, 2)}\n`, "utf8");
+  return diff;
+}
+
+async function applyFieldComposerSchema(body = {}) {
+  if (!body?.confirm) {
+    return {
+      generated_at: new Date().toISOString(),
+      status: "confirmation_required",
+      message: "需要用户二次确认后才会创建飞书表或字段。",
+    };
+  }
+
+  const composer = await readFieldComposer();
+  const feishu = await readJsonOrNull(feishuPath);
+  const appToken = feishu?.bitable?.app_token ?? "";
+  const selectedFields = new Map(composer.fields.map((field) => [field.id, field]));
+  const result = {
+    generated_at: new Date().toISOString(),
+    status: "pending",
+    preflight_status: "",
+    summary_before: {},
+    summary_after: {},
+    created_tables: [],
+    created_fields: [],
+    skipped_fields: [],
+    failed_items: [],
+    type_conflicts: [],
+    note: "只新增缺失的飞书数据表和字段；不会删除飞书已有字段，也不会修改已有字段类型。",
+  };
+
+  const preflight = await buildFieldComposerDiff(composer);
+  result.preflight_status = preflight.status;
+  result.summary_before = preflight.summary ?? {};
+
+  if (!feishu?.app_id || !feishu?.app_secret || !appToken) {
+    result.status = "needs_feishu_config";
+    return saveFieldComposerApplyResult(result, preflight);
+  }
+  if (preflight.status === "blocked_type_conflict") {
+    result.status = "blocked_type_conflict";
+    result.type_conflicts = preflight.type_conflicts ?? [];
+    return saveFieldComposerApplyResult(result, preflight);
+  }
+  if (preflight.status === "failed") {
+    result.status = "failed";
+    result.failed_items.push({ scope: "preflight", message: preflight.error?.message ?? "读取飞书结构失败。" });
+    return saveFieldComposerApplyResult(result, preflight);
+  }
+  if (preflight.status === "needs_feishu_config") {
+    result.status = "needs_feishu_config";
+    return saveFieldComposerApplyResult(result, preflight);
+  }
+  if (!(preflight.summary?.missing_tables || preflight.summary?.missing_fields)) {
+    result.status = "nothing_to_create";
+    return saveFieldComposerApplyResult(result, preflight);
+  }
+
+  try {
+    const accessToken = await getTenantAccessToken(feishu.app_id, feishu.app_secret);
+    const remoteTables = await listFeishuTables(accessToken, appToken);
+    const remoteTableByName = new Map(remoteTables.map((table) => [normalizeComparableText(table.name), table]));
+
+    for (const category of composer.categories) {
+      const expectedFields = (category.field_ids ?? []).map((id) => selectedFields.get(id)).filter(Boolean);
+      if (!expectedFields.length) continue;
+
+      let remoteTable = remoteTableByName.get(normalizeComparableText(category.table_name));
+      if (!remoteTable) {
+        try {
+          remoteTable = await createFeishuTable(accessToken, appToken, category.table_name, fieldDefinitionForComposer(expectedFields[0]));
+          remoteTableByName.set(normalizeComparableText(category.table_name), remoteTable);
+          result.created_tables.push({
+            category_id: category.id,
+            table_name: category.table_name,
+            table_id: remoteTable.table_id,
+          });
+          await delay(500);
+        } catch (error) {
+          result.failed_items.push({
+            scope: "table",
+            table_name: category.table_name,
+            message: error?.message ?? String(error),
+            code: error?.code,
+          });
+          continue;
+        }
+      }
+
+      let remoteFields = [];
+      try {
+        remoteFields = await listFeishuFields(accessToken, appToken, remoteTable.table_id);
+      } catch (error) {
+        result.failed_items.push({
+          scope: "fields",
+          table_name: category.table_name,
+          table_id: remoteTable.table_id,
+          message: error?.message ?? String(error),
+          code: error?.code,
+        });
+        continue;
+      }
+
+      const remoteFieldNames = new Set(remoteFields.map((field) => normalizeComparableText(field.field_name)));
+      for (const field of expectedFields) {
+        if (remoteFieldNames.has(normalizeComparableText(field.field_name))) {
+          result.skipped_fields.push({
+            table_name: category.table_name,
+            field_name: field.field_name,
+            reason: "already_exists",
+          });
+          continue;
+        }
+        try {
+          const created = await createFeishuField(accessToken, appToken, remoteTable.table_id, fieldDefinitionForComposer(field));
+          remoteFieldNames.add(normalizeComparableText(created.field_name || field.field_name));
+          result.created_fields.push({
+            table_name: category.table_name,
+            table_id: remoteTable.table_id,
+            field_name: created.field_name || field.field_name,
+            field_id: created.field_id ?? "",
+            type: created.type || fieldTypeCodeForComposer(field.feishu_type),
+            type_label: fieldTypeLabelForComposer(created.type || fieldTypeCodeForComposer(field.feishu_type)),
+          });
+          await delay(160);
+        } catch (error) {
+          result.failed_items.push({
+            scope: "field",
+            table_name: category.table_name,
+            table_id: remoteTable.table_id,
+            field_name: field.field_name,
+            message: error?.message ?? String(error),
+            code: error?.code,
+          });
+        }
+      }
+    }
+
+    const createdCount = result.created_tables.length + result.created_fields.length;
+    if (result.failed_items.length) result.status = createdCount ? "partial_failed" : "failed";
+    else result.status = createdCount ? "created" : "nothing_to_create";
+    const latestDiff = await buildFieldComposerDiff(composer);
+    result.summary_after = latestDiff.summary ?? {};
+    return saveFieldComposerApplyResult(result, latestDiff);
+  } catch (error) {
+    result.status = "failed";
+    result.failed_items.push({
+      scope: "apply",
+      message: error?.message ?? String(error),
+      code: error?.code,
+    });
+    return saveFieldComposerApplyResult(result, preflight);
+  }
+}
+
+async function saveFieldComposerApplyResult(result, diff) {
+  await fs.mkdir(path.dirname(fieldComposerApplyPath), { recursive: true });
+  await fs.writeFile(fieldComposerApplyPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  await fs.mkdir(path.dirname(fieldComposerDiffPath), { recursive: true });
+  await fs.writeFile(fieldComposerDiffPath, `${JSON.stringify(diff, null, 2)}\n`, "utf8");
+  return { result, diff };
+}
+
+async function buildFieldComposerDiff(composer) {
+  const feishu = await readJsonOrNull(feishuPath);
+  const appToken = feishu?.bitable?.app_token ?? "";
+  const selectedFields = new Map(composer.fields.map((field) => [field.id, field]));
+  const result = {
+    generated_at: new Date().toISOString(),
+    status: "unknown",
+    summary: {
+      selected_tables: composer.categories.filter((category) => (category.field_ids ?? []).length > 0).length,
+      selected_fields: composer.categories.reduce((sum, category) => sum + (category.field_ids ?? []).length, 0),
+      remote_tables: 0,
+      missing_tables: 0,
+      missing_fields: 0,
+      extra_remote_fields: 0,
+      type_conflicts: 0,
+    },
+    tables: [],
+    missing_tables: [],
+    missing_fields: [],
+    extra_remote_fields: [],
+    type_conflicts: [],
+    next_prompt: [],
+  };
+
+  if (!feishu?.app_id || !feishu?.app_secret || !appToken) {
+    result.status = "needs_feishu_config";
+    result.next_prompt.push("先完成飞书 App ID、App Secret 和多维表格链接配置。");
+    return result;
+  }
+
+  try {
+    const accessToken = await getTenantAccessToken(feishu.app_id, feishu.app_secret);
+    const remoteTables = await listFeishuTables(accessToken, appToken);
+    result.summary.remote_tables = remoteTables.length;
+    const remoteTableByName = new Map(remoteTables.map((table) => [normalizeComparableText(table.name), table]));
+
+    for (const category of composer.categories) {
+      const expectedFieldIds = category.field_ids ?? [];
+      if (!expectedFieldIds.length) continue;
+      const expectedFields = expectedFieldIds.map((id) => selectedFields.get(id)).filter(Boolean);
+      const remoteTable = remoteTableByName.get(normalizeComparableText(category.table_name));
+      const tableResult = {
+        category_id: category.id,
+        label_zh: category.label_zh,
+        table_name: category.table_name,
+        table_id: remoteTable?.table_id ?? "",
+        status: remoteTable ? "matched" : "missing_table",
+        expected_field_count: expectedFields.length,
+        remote_field_count: 0,
+        missing_fields: [],
+        extra_remote_fields: [],
+        type_conflicts: [],
+      };
+
+      if (!remoteTable) {
+        result.missing_tables.push({
+          category_id: category.id,
+          table_name: category.table_name,
+          expected_field_count: expectedFields.length,
+        });
+        tableResult.missing_fields = expectedFields.map((field) => field.field_name);
+        result.tables.push(tableResult);
+        continue;
+      }
+
+      const remoteFields = await listFeishuFields(accessToken, appToken, remoteTable.table_id);
+      tableResult.remote_field_count = remoteFields.length;
+      const remoteByName = new Map(remoteFields.map((field) => [normalizeComparableText(field.field_name), field]));
+      const expectedNames = new Set(expectedFields.map((field) => normalizeComparableText(field.field_name)));
+
+      for (const field of expectedFields) {
+        const remote = remoteByName.get(normalizeComparableText(field.field_name));
+        if (!remote) {
+          const item = {
+            category_id: category.id,
+            table_name: category.table_name,
+            field_id: field.id,
+            field_name: field.field_name,
+            label_zh: field.label_zh,
+            expected_type: field.feishu_type,
+          };
+          tableResult.missing_fields.push(item.field_name);
+          result.missing_fields.push(item);
+          continue;
+        }
+        const accepted = acceptedFieldTypesForComposer(field.feishu_type);
+        if (accepted.length && !accepted.includes(Number(remote.type))) {
+          const item = {
+            category_id: category.id,
+            table_name: category.table_name,
+            field_id: field.id,
+            field_name: field.field_name,
+            label_zh: field.label_zh,
+            expected_type: field.feishu_type,
+            remote_type: Number(remote.type),
+            remote_type_label: fieldTypeLabelForComposer(remote.type),
+          };
+          tableResult.type_conflicts.push(item.field_name);
+          result.type_conflicts.push(item);
+        }
+      }
+
+      for (const remote of remoteFields) {
+        if (expectedNames.has(normalizeComparableText(remote.field_name))) continue;
+        const item = {
+          category_id: category.id,
+          table_name: category.table_name,
+          field_name: remote.field_name,
+          remote_type: Number(remote.type),
+          remote_type_label: fieldTypeLabelForComposer(remote.type),
+          behavior: "ignore_and_leave_empty",
+        };
+        tableResult.extra_remote_fields.push(item.field_name);
+        result.extra_remote_fields.push(item);
+      }
+
+      if (tableResult.type_conflicts.length) tableResult.status = "type_conflict";
+      else if (tableResult.missing_fields.length) tableResult.status = "needs_new_fields";
+      else tableResult.status = "ready";
+      result.tables.push(tableResult);
+    }
+
+    result.summary.missing_tables = result.missing_tables.length;
+    result.summary.missing_fields = result.missing_fields.length;
+    result.summary.extra_remote_fields = result.extra_remote_fields.length;
+    result.summary.type_conflicts = result.type_conflicts.length;
+    if (result.type_conflicts.length) {
+      result.status = "blocked_type_conflict";
+      result.next_prompt.push("存在字段类型冲突，需要用户确认后手动处理，工具暂不自动改已有字段类型。");
+    } else if (result.missing_tables.length || result.missing_fields.length) {
+      result.status = "needs_confirmation";
+      result.next_prompt.push("有超出飞书当前结构的表或字段，写入前需要二次确认是否创建。");
+    } else {
+      result.status = "ready";
+      result.next_prompt.push("飞书结构与当前字段编排匹配，可以进入写入流程。");
+    }
+    if (result.extra_remote_fields.length) {
+      result.next_prompt.push("飞书表里存在未选字段，工具不会删除这些字段，也不会写入这些列。");
+    }
+    return result;
+  } catch (error) {
+    result.status = "failed";
+    result.error = {
+      name: error?.name ?? "Error",
+      message: error?.message ?? String(error),
+    };
+    result.next_prompt.push("读取飞书远端结构失败，请检查应用权限、文档应用授权和网络。");
+    return result;
+  }
+}
+
+async function listFeishuTables(accessToken, appToken) {
+  const tables = [];
+  let pageToken = "";
+  do {
+    const url = new URL(`https://open.feishu.cn/open-apis/bitable/v1/apps/${encodeURIComponent(appToken)}/tables`);
+    url.searchParams.set("page_size", "100");
+    if (pageToken) url.searchParams.set("page_token", pageToken);
+    const response = await feishuFetch(url, accessToken, "GET");
+    const json = await response.json();
+    if (!response.ok || json.code !== 0) throw createFeishuError("Failed to list Bitable tables", json);
+    tables.push(...(json.data?.items ?? []).map((table) => ({
+      ...table,
+      table_id: table.table_id ?? table.id ?? "",
+      name: table.name ?? table.table_name ?? "",
+    })));
+    pageToken = json.data?.has_more ? json.data?.page_token ?? "" : "";
+  } while (pageToken);
+  return tables;
+}
+
+async function listFeishuFields(accessToken, appToken, tableId) {
+  const fields = [];
+  let pageToken = "";
+  do {
+    const url = new URL(`https://open.feishu.cn/open-apis/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/fields`);
+    url.searchParams.set("page_size", "100");
+    if (pageToken) url.searchParams.set("page_token", pageToken);
+    const response = await feishuFetch(url, accessToken, "GET");
+    const json = await response.json();
+    if (!response.ok || json.code !== 0) throw createFeishuError("Failed to list Bitable fields", json);
+    fields.push(...(json.data?.items ?? []).map((field) => ({
+      ...field,
+      field_id: field.field_id ?? field.id ?? "",
+      field_name: field.field_name ?? field.name ?? "",
+      type: Number(field.type),
+    })));
+    pageToken = json.data?.has_more ? json.data?.page_token ?? "" : "";
+  } while (pageToken);
+  return fields;
+}
+
+async function createFeishuTable(accessToken, appToken, tableName, firstFieldDefinition) {
+  const url = new URL(`https://open.feishu.cn/open-apis/bitable/v1/apps/${encodeURIComponent(appToken)}/tables`);
+  url.searchParams.set("client_token", crypto.randomUUID());
+  const response = await feishuFetch(url, accessToken, "POST", {
+    table: {
+      name: tableName,
+      default_view_name: "Grid",
+      fields: [firstFieldDefinition],
+    },
+  });
+  const json = await response.json();
+  if (!response.ok || json.code !== 0) throw createFeishuError("Failed to create Bitable table", json);
+  const table = json.data?.table ?? json.data ?? {};
+  return {
+    ...table,
+    table_id: table.table_id ?? table.id ?? "",
+    name: table.name ?? table.table_name ?? tableName,
+  };
+}
+
+async function createFeishuField(accessToken, appToken, tableId, definition) {
+  const url = new URL(`https://open.feishu.cn/open-apis/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/fields`);
+  url.searchParams.set("client_token", crypto.randomUUID());
+  const response = await feishuFetch(url, accessToken, "POST", definition);
+  const json = await response.json();
+  if (!response.ok || json.code !== 0) throw createFeishuError("Failed to create Bitable field", json);
+  const field = json.data?.field ?? json.data ?? {};
+  return {
+    ...field,
+    field_id: field.field_id ?? field.id ?? "",
+    field_name: field.field_name ?? field.name ?? definition.field_name,
+    type: Number(field.type ?? definition.type),
+  };
+}
+
+function fieldDefinitionForComposer(field) {
+  return {
+    field_name: field.field_name,
+    type: fieldTypeCodeForComposer(field.feishu_type),
+  };
+}
+
+function fieldTypeCodeForComposer(type) {
+  const normalized = normalizeFeishuFieldType(type);
+  if (normalized === "number") return 2;
+  if (normalized === "single_select") return 3;
+  if (normalized === "multi_select") return 4;
+  if (normalized === "checkbox") return 7;
+  if (normalized === "url") return 15;
+  if (normalized === "attachment") return 17;
+  return 1;
+}
+
+function normalizeFeishuFieldType(value) {
+  const normalized = String(value ?? "text").trim();
+  return ["text", "long_text", "number", "single_select", "multi_select", "checkbox", "url", "attachment"].includes(normalized)
+    ? normalized
+    : "text";
+}
+
+function acceptedFieldTypesForComposer(type) {
+  const normalized = normalizeFeishuFieldType(type);
+  if (normalized === "number") return [2];
+  if (normalized === "single_select") return [3];
+  if (normalized === "multi_select") return [4];
+  if (normalized === "checkbox") return [7];
+  if (normalized === "url") return [1, 15];
+  if (normalized === "attachment") return [17];
+  if (normalized === "text" || normalized === "long_text") return [1];
+  return [];
+}
+
+function fieldTypeLabelForComposer(type) {
+  const labels = new Map([
+    [1, "Text"],
+    [2, "Number"],
+    [3, "Single Select"],
+    [4, "Multi Select"],
+    [7, "Checkbox"],
+    [15, "URL"],
+    [17, "Attachment"],
+  ]);
+  return labels.get(Number(type)) ?? "Unknown";
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function buildTemplateAudit({ fields, fieldDiagnostics, fieldsCheck, mappingFile, mappingPath, mappingText, remoteFields, taxonomy, taxonomyCategories }) {
@@ -1149,6 +1783,7 @@ async function readGameStatus(sample) {
     evaluation_source: aiEn?.evaluation_source ?? aiZh?.evaluation_source ?? "",
     ai_model: aiEn?.model ?? aiZh?.model ?? "",
     feishu_preview_status: preview?.status ?? "",
+    taxonomy_preflight: preview?.taxonomy_preflight ?? null,
     feishu_write_status: writeFresh ? (write?.status ?? "") : (dryRun?.status ?? ""),
     feishu_write_stale: Boolean(write && !writeFresh),
     record_id: writeFresh ? (write?.record_id ?? "") : "",
@@ -1442,6 +2077,176 @@ function summarizeBatchRun(run) {
   };
 }
 
+function buildBatchProductionOverview({ history = [], latestRun = null, latestDryRun = null, samples = [] } = {}) {
+  const runs = Array.isArray(history) ? history : [];
+  const executeRuns = runs.filter((run) => run.mode === "execute");
+  const dryRunCount = runs.filter((run) => run.mode === "dry_run").length;
+  const recentExecuteRuns = executeRuns.slice(0, 10);
+  const tasks = recentExecuteRuns.flatMap((run) => (run.tasks ?? []).map((task) => ({ ...task, run })));
+  const taskTotals = tasks.reduce((totals, task) => {
+    const status = String(task.status ?? "");
+    if (status === "success") totals.success += 1;
+    if (status === "failed") totals.failed += 1;
+    if (status === "skipped" || status === "skipped_duplicate") totals.skipped += 1;
+    totals.queued += 1;
+    totals.retry_attempts += Math.max(0, (task.attempts?.length ?? 0) - 1);
+    if (status === "success" && (task.attempts?.length ?? 0) > 1) totals.recovered_by_retry += 1;
+    if (status === "failed" && (task.attempts?.length ?? 0) > 1) totals.failed_after_retry += 1;
+    return totals;
+  }, {
+    queued: 0,
+    success: 0,
+    failed: 0,
+    skipped: 0,
+    retry_attempts: 0,
+    recovered_by_retry: 0,
+    failed_after_retry: 0,
+  });
+  const completed = taskTotals.success + taskTotals.failed;
+  const successRate = completed ? Math.round((taskTotals.success / completed) * 100) : 0;
+  const recoveryPlan = buildBatchRecoveryPlan(latestRun ?? executeRuns[0] ?? null);
+  const recurrentFailures = buildRecurrentBatchFailures(tasks);
+  const gameHistory = buildBatchGameHistory({ tasks, samples });
+  const averageDurationMs = average(recentExecuteRuns.map((run) => Number(run.duration_ms ?? 0)).filter((value) => value > 0));
+  const latestExecuteRun = latestRun?.mode === "execute" ? latestRun : executeRuns[0] ?? null;
+  const status = recoveryPlan.game_ids.length
+    ? "needs_recovery"
+    : recurrentFailures.length
+      ? "watch"
+      : executeRuns.length
+        ? "ready"
+        : "empty";
+  const tone = status === "needs_recovery" ? "warn" : status === "watch" ? "bad" : status === "ready" ? "good" : "warn";
+  const note = status === "needs_recovery"
+    ? `建议优先恢复 ${recoveryPlan.game_ids.length} 款未完成或失败游戏。`
+    : status === "watch"
+      ? `最近 ${recentExecuteRuns.length} 个执行批次里有重复失败游戏，建议先看错误尾巴。`
+      : status === "ready"
+        ? "最近批量记录可用于继续生产。"
+        : "暂无执行历史，先预演队列再开始批量运行。";
+
+  return {
+    generated_at: new Date().toISOString(),
+    status,
+    tone,
+    note,
+    run_count: runs.length,
+    execute_run_count: executeRuns.length,
+    dry_run_count: dryRunCount,
+    recent_window_count: recentExecuteRuns.length,
+    latest_execute_run_id: latestExecuteRun?.id ?? "",
+    latest_execute_status: latestExecuteRun?.status ?? "",
+    latest_execute_started_at: latestExecuteRun?.started_at ?? "",
+    latest_execute_finished_at: latestExecuteRun?.finished_at ?? "",
+    latest_dry_run_status: latestDryRun?.status ?? "",
+    average_duration_ms: Math.round(averageDurationMs),
+    success_rate: successRate,
+    totals: taskTotals,
+    recovery_plan: recoveryPlan,
+    recurrent_failures: recurrentFailures.slice(0, 8),
+    game_history: gameHistory.slice(0, 80),
+  };
+}
+
+function buildBatchRecoveryPlan(run) {
+  const resumeIds = [...new Set((run?.resume_game_ids ?? []).filter(Boolean))];
+  const retryIds = [...new Set((run?.retry_game_ids ?? []).filter(Boolean))];
+  const gameIds = resumeIds.length ? resumeIds : retryIds;
+  const scope = resumeIds.length ? "resume" : retryIds.length ? "failed" : "none";
+  const label = scope === "resume" ? "填未完成项" : scope === "failed" ? "填失败项" : "无需恢复";
+  return {
+    scope,
+    label,
+    game_ids: gameIds,
+    source_run_id: run?.id ?? "",
+    source_archive_dir: run?.archive_dir ?? "",
+    source_status: run?.status ?? "",
+    source_started_at: run?.started_at ?? "",
+  };
+}
+
+function buildRecurrentBatchFailures(tasks) {
+  const failures = new Map();
+  for (const task of tasks) {
+    if (task.status !== "failed" || !task.game_id) continue;
+    const existing = failures.get(task.game_id) ?? {
+      game_id: task.game_id,
+      game_name: task.game_name ?? "",
+      fail_count: 0,
+      retry_attempts: 0,
+      profiles: new Set(),
+      latest_failed_at: "",
+      latest_error: "",
+      latest_run_id: "",
+    };
+    existing.fail_count += 1;
+    existing.retry_attempts += Math.max(0, (task.attempts?.length ?? 0) - 1);
+    if (task.run?.profile_name) existing.profiles.add(task.run.profile_name);
+    const failedAt = task.finished_at || task.run?.finished_at || task.run?.started_at || "";
+    if (!existing.latest_failed_at || failedAt > existing.latest_failed_at) {
+      existing.latest_failed_at = failedAt;
+      existing.latest_error = summarizeTail(task.stderr_tail || task.stdout_tail);
+      existing.latest_run_id = task.run?.id ?? "";
+    }
+    failures.set(task.game_id, existing);
+  }
+  return [...failures.values()]
+    .filter((item) => item.fail_count > 1 || item.retry_attempts > 0)
+    .sort((a, b) => b.fail_count - a.fail_count || String(b.latest_failed_at).localeCompare(String(a.latest_failed_at)))
+    .map((item) => ({
+      ...item,
+      profiles: [...item.profiles],
+    }));
+}
+
+function buildBatchGameHistory({ tasks = [], samples = [] } = {}) {
+  const sampleNames = new Map(samples.map((sample) => [sample.game_id, sample.game_name]));
+  const byGame = new Map();
+  for (const task of tasks) {
+    if (!task.game_id) continue;
+    const existing = byGame.get(task.game_id) ?? {
+      game_id: task.game_id,
+      game_name: task.game_name || sampleNames.get(task.game_id) || "",
+      run_count: 0,
+      success_count: 0,
+      failed_count: 0,
+      skipped_count: 0,
+      retry_attempts: 0,
+      last_status: "",
+      last_profile_name: "",
+      last_run_id: "",
+      last_started_at: "",
+      last_finished_at: "",
+      last_error: "",
+    };
+    existing.run_count += 1;
+    if (task.status === "success") existing.success_count += 1;
+    if (task.status === "failed") existing.failed_count += 1;
+    if (["skipped", "skipped_duplicate"].includes(task.status)) existing.skipped_count += 1;
+    existing.retry_attempts += Math.max(0, (task.attempts?.length ?? 0) - 1);
+    const taskTime = task.finished_at || task.started_at || task.run?.finished_at || task.run?.started_at || "";
+    if (!existing.last_started_at || taskTime > (existing.last_finished_at || existing.last_started_at)) {
+      existing.last_status = task.status ?? "";
+      existing.last_profile_name = task.run?.profile_name ?? "";
+      existing.last_run_id = task.run?.id ?? "";
+      existing.last_started_at = task.started_at || task.run?.started_at || "";
+      existing.last_finished_at = task.finished_at || task.run?.finished_at || "";
+      existing.last_error = task.status === "failed" ? summarizeTail(task.stderr_tail || task.stdout_tail) : "";
+    }
+    byGame.set(task.game_id, existing);
+  }
+  return [...byGame.values()].sort((a, b) => {
+    const aTime = a.last_finished_at || a.last_started_at || "";
+    const bTime = b.last_finished_at || b.last_started_at || "";
+    return String(bTime).localeCompare(String(aTime));
+  });
+}
+
+function average(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 async function createBatchReport(body) {
   const { run, source } = await resolveBatchRunForReport(body);
   const summary = summarizeBatchRun(run);
@@ -1633,7 +2438,7 @@ function batchModeLabel(value) {
 
 function statusTone(value) {
   if (["success", "ready_for_write_test", "updated", "written"].includes(value)) return "good";
-  if (["success_with_failures", "success_with_review", "dry_run_ready", "template_ready", "cancelling", "cancelled", "planned", "pending"].includes(value)) return "warn";
+  if (["success_with_failures", "success_with_review", "dry_run_ready", "taxonomy_review_required", "template_ready", "cancelling", "cancelled", "planned", "pending"].includes(value)) return "warn";
   if (!value || value === "missing" || value === "failed" || value === "invalid") return "bad";
   return "";
 }
@@ -1680,6 +2485,25 @@ function durationMs(startedAt, finishedAt) {
 
 async function saveConfig(body) {
   const env = await readEnv();
+  if (body.ai) {
+    const ai = body.ai;
+    const providers = ai.providers ?? {};
+    if (ai.activeProvider) env.AI_PROVIDER = ai.activeProvider;
+    if (providers.gemini?.apiKey) env.GEMINI_API_KEY = providers.gemini.apiKey;
+    if (providers.gemini?.model) env.GEMINI_MODEL = providers.gemini.model;
+    env.GEMINI_PROXY = providers.gemini?.proxy ?? env.GEMINI_PROXY ?? "";
+    if (providers.openai_compatible?.apiKey) env.OPENAI_API_KEY = providers.openai_compatible.apiKey;
+    if (providers.openai_compatible?.baseUrl) env.OPENAI_BASE_URL = providers.openai_compatible.baseUrl;
+    if (providers.openai_compatible?.model) env.OPENAI_MODEL = providers.openai_compatible.model;
+    if (providers.deepseek?.apiKey) env.DEEPSEEK_API_KEY = providers.deepseek.apiKey;
+    if (providers.deepseek?.baseUrl) env.DEEPSEEK_BASE_URL = providers.deepseek.baseUrl;
+    if (providers.deepseek?.model) env.DEEPSEEK_MODEL = providers.deepseek.model;
+    if (providers.openrouter?.apiKey) env.OPENROUTER_API_KEY = providers.openrouter.apiKey;
+    if (providers.openrouter?.baseUrl) env.OPENROUTER_BASE_URL = providers.openrouter.baseUrl;
+    if (providers.openrouter?.model) env.OPENROUTER_MODEL = providers.openrouter.model;
+    env.ENABLE_AI_EVALUATION = env.ENABLE_AI_EVALUATION ?? "true";
+    env.ENABLE_AI_ACTION = env.ENABLE_AI_ACTION ?? "false";
+  }
   if (body.gemini) {
     if (body.gemini.apiKey) env.GEMINI_API_KEY = body.gemini.apiKey;
     if (body.gemini.model) env.GEMINI_MODEL = body.gemini.model;
@@ -2037,6 +2861,15 @@ async function writeEnv(values) {
     "GEMINI_MODEL",
     "GEMINI_TIMEOUT_MS",
     "GEMINI_PROXY",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+    "DEEPSEEK_API_KEY",
+    "DEEPSEEK_BASE_URL",
+    "DEEPSEEK_MODEL",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_BASE_URL",
+    "OPENROUTER_MODEL",
     "ENABLE_AI_EVALUATION",
     "ENABLE_AI_ACTION",
   ];

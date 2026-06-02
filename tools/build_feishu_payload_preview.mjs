@@ -6,12 +6,18 @@ const args = parseArgs(process.argv.slice(2));
 const gameId = args.gameId ?? args["game-id"] ?? "cow-saver";
 const gameDir = path.join(root, "evidence", gameId);
 const mappingPath = path.join(root, "mock_bitable", "feishu_field_mapping.csv");
+const fieldComposerPath = path.join(root, "config", "field_composer.json");
+const fieldComposerDefaultsPath = path.join(root, "config", "field_composer.defaults.json");
 
 const collection = await readJson(path.join(gameDir, "report.zh.json"));
 const aiZh = await readJson(path.join(gameDir, "ai_eval.zh.json"));
 const aiEn = await readJson(path.join(gameDir, "ai_eval.en.json"));
 const review = normalizeReview(await readJsonOrNull(path.join(gameDir, "review_status.json")));
 const mappings = await readCsv(mappingPath);
+const taxonomy = await readJsonOrNull(path.join(root, "config", "taxonomy_from_feishu.json"));
+const fieldComposer = normalizeFieldComposer(
+  (await readJsonOrNull(fieldComposerPath)) ?? (await readJsonOrNull(fieldComposerDefaultsPath)) ?? {},
+);
 
 const source = {
   game: {
@@ -51,10 +57,28 @@ for (const mapping of mappings) {
   }
 }
 
+const taxonomyPreflight = buildTaxonomyPreflight(fields, mappings, taxonomy);
+if (taxonomyPreflight.status !== "ready") {
+  source.derived.needs_taxonomy_review = true;
+  fields["Needs Taxonomy Review"] = true;
+  if (taxonomyPreflight.missing_options.length) {
+    fields["Taxonomy Suggestions"] = appendTaxonomyPreflightSuggestions(
+      fields["Taxonomy Suggestions"],
+      taxonomyPreflight.missing_options,
+    );
+  }
+}
+const categoryRecords = buildCategoryRecords(fieldComposer, source);
+const categoryDiagnostics = categoryRecords.flatMap((record) => record.diagnostics ?? []);
+
 const payload = {
   game_id: gameId,
   generated_at: new Date().toISOString(),
-  status: fieldDiagnostics.length ? "needs_mapping_review" : "ready_to_write",
+  status: fieldDiagnostics.length || categoryDiagnostics.length
+    ? "needs_mapping_review"
+    : taxonomyPreflight.status !== "ready"
+      ? "taxonomy_review_required"
+      : "ready_to_write",
   target: {
     platform: "feishu_bitable",
     mode: "preview_only",
@@ -62,8 +86,12 @@ const payload = {
     table_id: "TO_BE_CONFIGURED",
   },
   record: { fields },
+  category_records: categoryRecords,
   diagnostics: fieldDiagnostics,
+  category_diagnostics: categoryDiagnostics,
+  taxonomy_preflight: taxonomyPreflight,
   mapping_file: path.relative(root, mappingPath).replaceAll("\\", "/"),
+  field_composer_file: path.relative(root, fieldComposerPath).replaceAll("\\", "/"),
   source_files: {
     collection_report: path.relative(root, path.join(gameDir, "report.zh.json")).replaceAll("\\", "/"),
     ai_eval_zh: path.relative(root, path.join(gameDir, "ai_eval.zh.json")).replaceAll("\\", "/"),
@@ -155,13 +183,70 @@ function getPath(source, sourcePath) {
   }, source);
 }
 
+function normalizeFieldComposer(source) {
+  const fields = (source.fields ?? [])
+    .map((field) => ({
+      id: String(field.id ?? "").trim(),
+      field_name: String(field.field_name ?? "").trim(),
+      source_path: String(field.source_path ?? "").trim(),
+      feishu_type: normalizeFeishuType(field.feishu_type),
+      required: Boolean(field.required),
+    }))
+    .filter((field) => field.id && field.field_name && field.source_path);
+  const fieldIds = new Set(fields.map((field) => field.id));
+  const categories = (source.categories ?? [])
+    .map((category) => ({
+      id: String(category.id ?? "").trim(),
+      label_zh: String(category.label_zh ?? category.table_name ?? "").trim(),
+      table_name: String(category.table_name ?? category.label_zh ?? "").trim(),
+      field_ids: [...new Set((category.field_ids ?? []).map((id) => String(id).trim()).filter((id) => fieldIds.has(id)))],
+    }))
+    .filter((category) => category.id && category.table_name && category.field_ids.length);
+  return { fields, categories };
+}
+
+function normalizeFeishuType(type) {
+  const value = String(type ?? "text").trim();
+  return ["text", "long_text", "number", "single_select", "multi_select", "checkbox", "url", "attachment"].includes(value) ? value : "text";
+}
+
+function buildCategoryRecords(composer, source) {
+  const fieldsById = new Map((composer.fields ?? []).map((field) => [field.id, field]));
+  return (composer.categories ?? []).map((category) => {
+    const recordFields = {};
+    const diagnostics = [];
+    for (const fieldId of category.field_ids ?? []) {
+      const field = fieldsById.get(fieldId);
+      if (!field) continue;
+      const rawValue = getPath(source, field.source_path);
+      const value = normalizeForFeishu(rawValue, field.feishu_type);
+      recordFields[field.field_name] = value;
+      if (field.required && isEmptyValue(value)) {
+        diagnostics.push({
+          table_name: category.table_name,
+          field_name: field.field_name,
+          source_path: field.source_path,
+          issue: "required_field_empty",
+        });
+      }
+    }
+    return {
+      category_id: category.id,
+      label_zh: category.label_zh,
+      table_name: category.table_name,
+      fields: recordFields,
+      diagnostics,
+    };
+  }).filter((record) => Object.keys(record.fields).length);
+}
+
 function normalizeForFeishu(value, type) {
   if (value == null) return null;
   if (type === "number") return Number.isFinite(Number(value)) ? Number(value) : null;
   if (type === "checkbox") return Boolean(value);
   if (type === "multi_select") {
     if (Array.isArray(value)) return value.map(stringifyOption).filter(Boolean);
-    if (typeof value === "string" && value.trim()) return [value.trim()];
+    if (typeof value === "string" && value.trim()) return splitOptionText(value);
     return [];
   }
   if (type === "single_select") {
@@ -179,6 +264,101 @@ function stringifyOption(value) {
   if (typeof value === "string") return value.trim();
   if (typeof value === "object") return value.name_en ?? value.name_zh ?? value.suggestion ?? value.title ?? JSON.stringify(value);
   return String(value);
+}
+
+function splitOptionText(value) {
+  return String(value ?? "")
+    .split(/[,，;；\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function buildTaxonomyPreflight(fields, mappings, taxonomySource) {
+  const checkedFields = [];
+  const missingOptions = [];
+  const categories = taxonomySource?.categories ?? {};
+  const categoryIndexes = new Map(
+    Object.entries(categories).map(([category, options]) => [category, buildTaxonomyOptionIndex(options)]),
+  );
+  const taxonomyStatus = taxonomySource?.status || "missing";
+
+  for (const mapping of mappings) {
+    const category = taxonomyCategoryForField(mapping.field_name);
+    if (!category) continue;
+    const values = normalizeTaxonomyFieldValues(fields[mapping.field_name]);
+    const known = categoryIndexes.get(category) ?? new Set();
+    const fieldMissing = values.filter((value) => !known.has(normalizeTaxonomyKey(value)));
+    const status = !taxonomySource?.option_count
+      ? "taxonomy_not_synced"
+      : fieldMissing.length
+        ? "missing_options"
+        : "ready";
+    checkedFields.push({
+      field_name: mapping.field_name,
+      category,
+      feishu_type: mapping.feishu_type,
+      values,
+      missing_options: fieldMissing,
+      status,
+    });
+    for (const value of fieldMissing) {
+      missingOptions.push({
+        field_name: mapping.field_name,
+        category,
+        option: value,
+        suggestion: value,
+      });
+    }
+  }
+
+  return {
+    status: missingOptions.length ? "needs_review" : taxonomySource?.option_count ? "ready" : "taxonomy_not_synced",
+    taxonomy_status: taxonomyStatus,
+    taxonomy_table_id: taxonomySource?.table_id ?? "",
+    option_count: taxonomySource?.option_count ?? 0,
+    checked_fields: checkedFields,
+    missing_options: missingOptions,
+  };
+}
+
+function buildTaxonomyOptionIndex(options) {
+  const keys = new Set();
+  for (const option of Array.isArray(options) ? options : []) {
+    for (const value of [option.id, option.name_en, option.name_zh]) {
+      const key = normalizeTaxonomyKey(value);
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function normalizeTaxonomyFieldValues(value) {
+  if (Array.isArray(value)) return value.map(stringifyOption).filter(Boolean);
+  if (typeof value === "string") return splitOptionText(value);
+  return value == null ? [] : [stringifyOption(value)].filter(Boolean);
+}
+
+function normalizeTaxonomyKey(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function taxonomyCategoryForField(fieldName) {
+  const categories = {
+    "Target Audience": "audiences",
+    "Game Type": "gameplay_types",
+    "Subgenre": "gameplay_types",
+    "Theme": "themes",
+    "Art Style": "art_styles",
+    "Feature Tags": "feature_tags",
+    "Controls": "controls",
+  };
+  return categories[fieldName] ?? "";
+}
+
+function appendTaxonomyPreflightSuggestions(currentValue, missingOptions) {
+  const current = stringifyLongText(currentValue).trim();
+  const lines = missingOptions.map((item) => `${item.field_name}: ${item.option}\nNot found in ${item.category}; review before writing to Feishu.`);
+  return [current, ...lines].filter(Boolean).join("\n\n");
 }
 
 function stringifyLongText(value) {

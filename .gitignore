@@ -25,10 +25,14 @@ docs/评测字段覆盖验收记录.md
 docs/飞书多维表格接入准备.md
 dist/
 release/
+downloads/*.zip
 evidence/
 outputs/
 workbench/
 config/feishu.local.json
+config/field_composer.json
+config/field_composer_diff.json
+config/field_composer_apply_result.json
 config/feishu_url_parse_result.json
 config/feishu_wiki_resolve_result.json
 config/feishu_config_check.json

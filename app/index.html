@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>H5 游戏评测助手</title>
-  <link rel="stylesheet" href="/app/styles.css">
+  <link rel="stylesheet" href="/app/styles.css?v=1.8-ux-flow">
 </head>
 <body>
   <div class="shell">
@@ -12,7 +12,7 @@
       <div class="brand">
         <strong>H5</strong>
         <span>评测工作台</span>
-        <small>v1.6</small>
+        <small>v1.8α</small>
       </div>
 
       <nav class="rail-nav" aria-label="主导航">
@@ -67,6 +67,11 @@
               <button class="button orange" id="importUrlsButton" type="button">导入 H5 链接</button>
               <button class="button" id="batchDryRunButton" type="button">预演队列</button>
             </div>
+            <div class="next-step-card" id="nextStepCard" aria-live="polite">
+              <span>当前下一步</span>
+              <b id="nextStepTitle">读取状态</b>
+              <small id="nextStepDetail">正在确认配置和队列。</small>
+            </div>
             <div class="metrics">
               <div class="metric hot"><span>队列</span><b id="sampleCount">0 款</b></div>
               <div class="metric"><span>截图</span><b id="metricShots">0</b></div>
@@ -89,7 +94,10 @@
         <section class="workspace" id="results">
           <div class="queue-panel">
             <div class="section-head">
-              <h2>评测队列</h2>
+              <div class="section-title-stack">
+                <h2 id="queuePanelTitle">评测队列</h2>
+                <span id="queuePanelHint">导入后先预演，再运行。</span>
+              </div>
               <div class="segmented" id="resultOverview"></div>
             </div>
             <div class="game-table-wrap">
@@ -111,20 +119,6 @@
             <div class="batch-history-panel" id="batchHistoryPanel" aria-label="批次历史"></div>
           </div>
 
-          <aside class="side-stack">
-            <div class="modules">
-              <button class="module active" data-view="workbench" data-workbench-mode="workbench" data-jump="overview" type="button"><i>1</i><b>工作台</b><span>当前</span></button>
-              <button class="module" data-view="workbench" data-workbench-mode="queue" data-jump="results" type="button"><i>2</i><b>任务队列</b><span>可重试</span></button>
-              <button class="module" data-view="workbench" data-workbench-mode="review" data-jump="results" type="button"><i>3</i><b>证据复核</b><span id="metricFlagsSmall">0 提示</span></button>
-              <button class="module" data-view="config" data-jump="config" type="button"><i>4</i><b>配置中心</b><span>就绪</span></button>
-              <button class="module" data-view="guide" data-jump="guide" type="button"><i>5</i><b>飞书向导</b><span>内置</span></button>
-            </div>
-            <div class="side-console">
-              <h3>任务日志</h3>
-              <pre id="sideJobOutput">等待任务输出...</pre>
-            </div>
-          </aside>
-
           <div class="batch-tools" aria-label="批量队列工具">
             <label>
               <span>队列游戏 ID</span>
@@ -133,6 +127,8 @@
             <div class="button-row">
               <button class="button" id="fillBatchAllButton" type="button">全部</button>
               <button class="button" id="fillBatchSelectedButton" type="button">当前</button>
+              <button class="button" id="removeBatchSelectedButton" type="button" title="从当前队列输入中移除选中的游戏，不删除游戏库记录">移除选中</button>
+              <button class="button" id="clearBatchQueueButton" type="button" title="清空当前队列输入，不删除游戏、证据、报告或批次历史">清空队列</button>
               <button class="button" id="fillBatchFailedButton" type="button">失败项</button>
               <button class="button" id="fillBatchResumeButton" type="button">未完成项</button>
               <button class="button" id="batchDryRunPanelButton" type="button">预演</button>
@@ -192,45 +188,59 @@
           <div class="config-lead">
             <span>配置</span>
             <h1>配置中心</h1>
-            <p>密钥只在本机保存，留空保存会保留原值。</p>
+            <p>配置 AI、飞书和字段写入方案。</p>
             <button class="button primary" id="saveConfigButton" type="button">保存配置</button>
           </div>
 
-          <div class="setup-guide" id="setupGuide">
-            <div class="setup-progress">
-              <div>
-                <div class="form-title">首次配置进度</div>
-                <p>按顺序完成模型、飞书、字段、标签库和队列预演。</p>
-              </div>
-              <div class="setup-score" id="setupProgressText">读取中</div>
-            </div>
-            <ol class="setup-steps" id="setupSteps"></ol>
-          </div>
-
-          <div class="storage-guide" id="storageGuide">
-            <div class="storage-fact"><span>数据目录</span><strong id="storageRootText">正在读取</strong></div>
-            <div class="storage-fact"><span>游戏文件夹</span><strong id="storageEvidenceText">evidence/&lt;game_id&gt;/</strong></div>
-            <div class="storage-fact"><span>截图策略</span><strong id="storageScreenshotText">本地保存</strong></div>
-          </div>
-
-          <section class="config-workbench" id="configWorkbench" aria-label="字段与标签库配置总览">
-            <div class="config-empty">字段配置读取中。</div>
-          </section>
-
           <div class="config-grid">
-            <form class="form-block" id="geminiForm">
-              <div class="form-title">Gemini</div>
-              <label><span>API Key</span><input name="apiKey" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+            <form class="form-block ai-config-form" id="aiForm">
+              <div class="form-title">多 AI 模型</div>
               <label>
-                <span>模型</span>
-                <select name="model">
-                  <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
-                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                  <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                <span>当前使用</span>
+                <select name="activeProvider">
+                  <option value="gemini">Gemini</option>
+                  <option value="openai_compatible">OpenAI 兼容</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openrouter">OpenRouter</option>
                 </select>
               </label>
-              <label><span>代理</span><input name="proxy" type="text" placeholder="http://127.0.0.1:10808"></label>
-              <button class="button" data-job="gemini-test" type="button">测试 Gemini</button>
+              <div class="ai-provider-grid">
+                <section class="ai-provider-card" data-ai-provider-card="gemini">
+                  <div class="provider-card-head"><b>Gemini</b><span id="geminiProviderState">当前可用</span></div>
+                  <label><span>API Key</span><input name="geminiApiKey" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+                  <label>
+                    <span>模型</span>
+                    <select name="geminiModel">
+                      <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                      <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                    </select>
+                  </label>
+                  <label><span>代理</span><input name="geminiProxy" type="text" placeholder="http://127.0.0.1:10808"></label>
+                  <button class="button" data-job="gemini-test" type="button">测试 Gemini</button>
+                </section>
+
+                <section class="ai-provider-card" data-ai-provider-card="openai_compatible">
+                  <div class="provider-card-head"><b>OpenAI 兼容</b><span id="openaiProviderState">预留</span></div>
+                  <label><span>API Key</span><input name="openaiApiKey" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+                  <label><span>Base URL</span><input name="openaiBaseUrl" type="text" placeholder="https://api.openai.com/v1"></label>
+                  <label><span>模型</span><input name="openaiModel" type="text" placeholder="gpt-4.1-mini"></label>
+                </section>
+
+                <section class="ai-provider-card" data-ai-provider-card="deepseek">
+                  <div class="provider-card-head"><b>DeepSeek</b><span id="deepseekProviderState">预留</span></div>
+                  <label><span>API Key</span><input name="deepseekApiKey" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+                  <label><span>Base URL</span><input name="deepseekBaseUrl" type="text" placeholder="https://api.deepseek.com"></label>
+                  <label><span>模型</span><input name="deepseekModel" type="text" placeholder="deepseek-chat"></label>
+                </section>
+
+                <section class="ai-provider-card" data-ai-provider-card="openrouter">
+                  <div class="provider-card-head"><b>OpenRouter</b><span id="openrouterProviderState">预留</span></div>
+                  <label><span>API Key</span><input name="openrouterApiKey" type="password" autocomplete="off" placeholder="已配置时可留空"></label>
+                  <label><span>Base URL</span><input name="openrouterBaseUrl" type="text" placeholder="https://openrouter.ai/api/v1"></label>
+                  <label><span>模型</span><input name="openrouterModel" type="text" placeholder="google/gemini-2.5-flash-lite"></label>
+                </section>
+              </div>
             </form>
 
             <form class="form-block" id="feishuForm">
@@ -245,11 +255,13 @@
               <label class="checkline wide"><input name="uploadScreenshots" type="checkbox"><span>写入飞书时上传截图附件</span></label>
               <div class="button-row">
                 <button class="button" data-job="feishu-check" type="button">检查配置</button>
-                <button class="button" data-job="feishu-fields" type="button">检查字段</button>
-                <button class="button" data-job="taxonomy-sync" type="button">同步标签库</button>
               </div>
             </form>
           </div>
+
+          <section class="field-composer" id="fieldComposer" aria-label="字段与标签库编排">
+            <div class="field-composer-empty">字段编排器读取中。</div>
+          </section>
         </section>
       </section>
 
@@ -258,17 +270,39 @@
           <div class="config-lead">
             <span>飞书</span>
             <h1>飞书接入向导</h1>
-            <p>给非技术使用者看的最短接入路径，适合首次配置时逐项核对。</p>
+            <p>按步骤打开飞书页面完成接入。</p>
+            <div class="guide-lead-actions">
+              <a class="button primary" href="https://open.feishu.cn/app" target="_blank" rel="noreferrer">打开开发者后台</a>
+              <a class="button" href="https://open.feishu.cn/document/develop-process/self-built-application-development-process?lang=zh-CN" target="_blank" rel="noreferrer">官方流程</a>
+            </div>
           </div>
           <div class="guide-content">
             <div class="guide-visual"><img src="/app/assets/feishu-guide-flow.svg" alt="飞书多维表格接入流程图"></div>
+            <div class="guide-shot-grid" aria-label="飞书接入图文截图">
+              <article class="guide-shot-card">
+                <a href="https://open.feishu.cn/app" target="_blank" rel="noreferrer"><img src="/app/assets/feishu-guide/create-app.png" alt="飞书开发者后台入口截图"></a>
+                <div><span>01</span><b>开发者后台</b></div>
+              </article>
+              <article class="guide-shot-card">
+                <a href="https://open.feishu.cn/document/develop-process/self-built-application-development-process?lang=zh-CN" target="_blank" rel="noreferrer"><img src="/app/assets/feishu-guide/app-process.png" alt="企业自建应用开发流程截图"></a>
+                <div><span>02</span><b>自建应用流程</b></div>
+              </article>
+              <article class="guide-shot-card">
+                <a href="https://open.feishu.cn/document/server-docs/docs/bitable-v1/bitable-overview?lang=zh-CN" target="_blank" rel="noreferrer"><img src="/app/assets/feishu-guide/bitable-api.png" alt="飞书多维表格 API 文档截图"></a>
+                <div><span>03</span><b>多维表格权限</b></div>
+              </article>
+              <article class="guide-shot-card">
+                <a href="https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-field/create?lang=zh-CN" target="_blank" rel="noreferrer"><img src="/app/assets/feishu-guide/bitable-fields.png" alt="飞书多维表格新增字段 API 文档截图"></a>
+                <div><span>04</span><b>字段创建</b></div>
+              </article>
+            </div>
             <ol class="guide-list">
-              <li><div><strong>创建企业自建应用</strong><span>名称建议用“H5游戏评测助手”。</span></div></li>
-              <li><div><strong>复制 App ID / App Secret</strong><span>Secret 只填在本工具里，不发聊天。</span></div></li>
-              <li><div><strong>开通多维表格权限</strong><span>至少需要查看、编辑和管理多维表格。</span></div></li>
-              <li><div><strong>Wiki 链接额外开权限</strong><span>知识库多维表格需要 wiki:node:read 或等价权限。</span></div></li>
-              <li><div><strong>发布应用版本</strong><span>个人测试也需要发布，权限才生效。</span></div></li>
-              <li><div><strong>添加文档应用</strong><span>在多维表格右上角文档应用里添加，并设为可编辑。</span></div></li>
+              <li><div><strong>创建企业自建应用</strong><span>名称建议用“H5游戏评测助手”。</span><div class="guide-step-actions"><a class="button small" href="https://open.feishu.cn/app" target="_blank" rel="noreferrer">创建应用</a></div></div></li>
+              <li><div><strong>复制 App ID / App Secret</strong><span>Secret 只填在本工具里，不发聊天。</span><div class="guide-step-actions"><a class="button small" href="https://open.feishu.cn/app" target="_blank" rel="noreferrer">打开后台</a></div></div></li>
+              <li><div><strong>开通多维表格权限</strong><span>至少需要查看、编辑和管理多维表格。</span><div class="guide-step-actions"><a class="button small" href="https://open.feishu.cn/document/server-docs/docs/bitable-v1/bitable-overview?lang=zh-CN" target="_blank" rel="noreferrer">权限文档</a></div></div></li>
+              <li><div><strong>Wiki 链接额外开权限</strong><span>知识库多维表格需要 wiki:node:read 或等价权限。</span><div class="guide-step-actions"><a class="button small" href="https://open.feishu.cn/document/develop-process/self-built-application-development-process?lang=zh-CN" target="_blank" rel="noreferrer">流程文档</a></div></div></li>
+              <li><div><strong>发布应用版本</strong><span>个人测试也需要发布，权限才生效。</span><div class="guide-step-actions"><a class="button small" href="https://open.feishu.cn/document/develop-process/self-built-application-development-process?lang=zh-CN" target="_blank" rel="noreferrer">发布说明</a></div></div></li>
+              <li><div><strong>添加文档应用</strong><span>在多维表格右上角文档应用里添加，并设为可编辑。</span><div class="guide-step-actions"><a class="button small" href="https://feishu.cn/base" target="_blank" rel="noreferrer">打开多维表格</a><button class="button small primary" data-guide-view="config" data-guide-jump="config" type="button">去配置</button></div></div></li>
             </ol>
           </div>
         </section>
@@ -313,6 +347,6 @@
     </div>
   </div>
 
-  <script type="module" src="/app/app.js"></script>
+  <script type="module" src="/app/app.js?v=1.8-ux-flow"></script>
 </body>
 </html>

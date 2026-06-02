@@ -13,7 +13,7 @@ Game Mode,ai.en.game_mode,text,true,English export field
 Game Type,ai.en.game_type,single_select,true,From taxonomy
 Subgenre,ai.en.subgenre,single_select,true,From taxonomy
 Theme,ai.en.theme,multi_select,true,From taxonomy
-Art Style,ai.en.art_style,single_select,true,From taxonomy
+Art Style,ai.en.art_style,multi_select,true,From taxonomy
 Feature Tags,ai.en.feature_tags,multi_select,true,From taxonomy
 Package Size MB,collection.package_size_estimate_mb.content_length_mb,number,true,Header-based estimate
 Slow 4G Load Time MS,collection.slow_4g_load_ms.domcontentloaded_ms,number,true,DOMContentLoaded timing

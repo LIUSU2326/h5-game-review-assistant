@@ -340,7 +340,7 @@ ${JSON.stringify(taxonomyData, null, 2)}
     "game_type": "...",
     "subgenre": "...",
     "theme": ["..."],
-    "art_style": "...",
+    "art_style": ["..."],
     "feature_tags": ["..."],
     "orientation": "...",
     "tutorial": "...",
@@ -426,7 +426,7 @@ function repairGeminiResult(parsed, sourceReport) {
   fillText(parsed.en, "game_type", selected.gameType.map((item) => item.name_en).join(", "), repairs);
   fillText(parsed.en, "subgenre", selected.subType.map((item) => item.name_en).join(", ") || fallback.subgenreEn, repairs);
   fillArray(parsed.en, "theme", selected.theme.map((item) => item.name_en), repairs);
-  fillText(parsed.en, "art_style", selected.artStyle.map((item) => item.name_en).join(", "), repairs);
+  fillArray(parsed.en, "art_style", selected.artStyle.map((item) => item.name_en), repairs);
   fillArray(parsed.en, "feature_tags", selected.featureTags.map((item) => item.name_en), repairs);
   fillArray(parsed.en, "controls", selected.controls.map((item) => item.name_en), repairs);
   fillArray(parsed.en, "how_to_play", fallback.howToPlayEn, repairs);
@@ -494,8 +494,19 @@ function repairGeminiResult(parsed, sourceReport) {
 
 function fillArray(target, key, fallbackValues, repairs) {
   if (Array.isArray(target[key]) && target[key].length) return;
+  if (typeof target[key] === "string" && target[key].trim()) {
+    target[key] = splitOptionText(target[key]);
+    if (target[key].length) return;
+  }
   target[key] = fallbackValues;
   repairs.push(`en.${key}`);
+}
+
+function splitOptionText(value) {
+  return String(value ?? "")
+    .split(/[,，;；\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function fillText(target, key, fallbackValue, repairs) {
@@ -688,7 +699,7 @@ async function buildLocalFallbackEvaluation({ gameDir: outputDir, report: source
       game_type: selected.gameType.map((item) => item.name_en).join(", "),
       subgenre: selected.subType.map((item) => item.name_en).join(", ") || profile.subgenreEn,
       theme: selected.theme.map((item) => item.name_en),
-      art_style: selected.artStyle.map((item) => item.name_en).join(", "),
+      art_style: selected.artStyle.map((item) => item.name_en),
       feature_tags: selected.featureTags.map((item) => item.name_en),
       orientation: profile.orientationEn,
       tutorial: "The local fallback could not reliably confirm a complete tutorial flow from screenshots alone.",
