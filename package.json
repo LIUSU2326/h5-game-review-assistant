@@ -1,6 +1,6 @@
 {
   "name": "h5-game-eval-poc",
-  "version": "1.8.0-alpha.2",
+  "version": "1.8.1-alpha.1",
   "description": "Local H5 game evaluation assistant with browser evidence, Gemini review, and Feishu Bitable export.",
   "author": "Local POC",
   "private": true,
@@ -46,6 +46,7 @@
       "config/feishu.example.json",
       "config/run_profiles.json",
       "config/feishu_onboarding_checklist.json",
+      "config/field_composer.defaults.json",
       ".env.example",
       "docs/**/*",
       "package.json"

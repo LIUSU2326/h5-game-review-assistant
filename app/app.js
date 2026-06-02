@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8 alpha";
+const APP_VERSION_LABEL = "v1.8.1 alpha.1";
 
 const state = {
   status: null,
@@ -28,6 +28,7 @@ const state = {
   },
   selectedBatchHistoryIndex: null,
   consoleExpanded: false,
+  nextStepAction: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -48,6 +49,7 @@ const elements = {
   nextStepCard: $("#nextStepCard"),
   nextStepTitle: $("#nextStepTitle"),
   nextStepDetail: $("#nextStepDetail"),
+  nextStepAction: $("#nextStepAction"),
   queuePanelTitle: $("#queuePanelTitle"),
   queuePanelHint: $("#queuePanelHint"),
   pipelineState: $("#pipelineState"),
@@ -99,6 +101,7 @@ function bindEvents() {
   $("#saveConfigButton").addEventListener("click", saveConfig);
   $("#importUrlsButton").addEventListener("click", importUrls);
   elements.runSelectedButton.addEventListener("click", runSelectedGame);
+  elements.nextStepAction?.addEventListener("click", performNextStepAction);
   $("#fillBatchAllButton").addEventListener("click", fillBatchAll);
   $("#fillBatchSelectedButton").addEventListener("click", fillBatchSelected);
   $("#removeBatchSelectedButton").addEventListener("click", removeBatchSelected);
@@ -400,24 +403,24 @@ function renderWorkbenchMode() {
 function fieldComposerWriteReadiness() {
   const status = state.fieldComposerDiff?.status || "";
   if (!state.fieldComposer) {
-    return { ok: false, label: "读取字段中", detail: "字段编排器还在读取，请稍后再运行。" };
+    return { ok: false, label: "读取字段中", detail: "字段编排器还在读取，请稍后再运行。", action: null };
   }
   if (!status) {
-    return { ok: false, label: "先检查字段", detail: "先到配置中心检查飞书差异，确认分类表和字段能写入。" };
+    return { ok: false, label: "先检查字段", detail: "先到配置中心检查飞书差异，确认分类表和字段能写入。", action: { label: "检查字段", fieldDiff: true } };
   }
   if (status === "ready") {
     return { ok: true, label: "字段已就绪", detail: "飞书分类表和字段结构已匹配。" };
   }
   if (status === "needs_confirmation") {
-    return { ok: false, label: "先确认字段", detail: "飞书缺少表或字段，需要二次确认后再创建。" };
+    return { ok: false, label: "先确认字段", detail: "飞书缺少表或字段，需要二次确认后再创建。", action: { label: "去确认", scroll: "config" } };
   }
   if (status === "blocked_type_conflict") {
-    return { ok: false, label: "处理字段冲突", detail: "飞书已有字段类型与本地编排冲突，需要先人工调整。" };
+    return { ok: false, label: "处理字段冲突", detail: "飞书已有字段类型与本地编排冲突，需要先人工调整。", action: { label: "查看冲突", scroll: "config" } };
   }
   if (status === "needs_feishu_config") {
-    return { ok: false, label: "先配置飞书", detail: "飞书凭证或多维表格目标还没有就绪。" };
+    return { ok: false, label: "先配置飞书", detail: "飞书凭证或多维表格目标还没有就绪。", action: { label: "去配置", scroll: "config" } };
   }
-  return { ok: false, label: "重新检查字段", detail: "最近一次字段检查未通过，先重新检查飞书差异。" };
+  return { ok: false, label: "重新检查字段", detail: "最近一次字段检查未通过，先重新检查飞书差异。", action: { label: "重新检查", fieldDiff: true } };
 }
 
 function buildRunGate(options = {}) {
@@ -497,45 +500,90 @@ function currentNextStep() {
   const steps = setupStepsData();
   const incomplete = steps.find((step) => !step.done);
   if (incomplete) {
-    return { tone: "warn", title: incomplete.title, detail: incomplete.detail };
+    return { tone: "warn", title: incomplete.title, detail: incomplete.detail, action: incomplete.action };
   }
 
   const taxonomyCount = Number(state.status.config?.taxonomy?.option_count ?? 0);
   if (!taxonomyCount) {
-    return { tone: "warn", title: "同步飞书标签库", detail: "玩法、题材、画风等选项需要先从飞书表格读取。" };
+    const hasTaxonomyTable = Boolean(state.status.config?.feishu?.taxonomy_table_id);
+    return {
+      tone: "warn",
+      title: "同步飞书标签库",
+      detail: "玩法、题材、画风等选项需要先从飞书表格读取。",
+      action: hasTaxonomyTable
+        ? { label: "同步标签库", job: "taxonomy-sync" }
+        : { label: "去配置", scroll: "config" },
+    };
   }
 
   const wantsFeishu = $("#writeFeishu")?.checked !== false;
   if (wantsFeishu) {
     const fieldState = fieldComposerWriteReadiness();
     if (!fieldState.ok) {
-      return { tone: "warn", title: fieldState.label, detail: fieldState.detail };
+      return {
+        tone: "warn",
+        title: fieldState.label,
+        detail: fieldState.detail,
+        action: fieldState.action || { label: "去配置", scroll: "config" },
+      };
     }
   }
 
   const games = state.status.games ?? [];
   if (!games.length) {
-    return { tone: "warn", title: "导入 H5 链接", detail: "支持不同在线试玩站点的链接，不要求固定 URL 格式。" };
+    return {
+      tone: "warn",
+      title: "导入 H5 链接",
+      detail: "支持不同在线试玩站点的链接，不要求固定 URL 格式。",
+      action: { label: "导入链接", focus: "urlInput" },
+    };
   }
 
   if (contextMode() === "queue") {
-    return { tone: "good", title: "预演或运行队列", detail: "先用预演确认范围，再开始批量运行。" };
+    return {
+      tone: "good",
+      title: "预演或运行队列",
+      detail: "先用预演确认范围，再开始批量运行。",
+      action: { label: "预演队列", dryRun: true },
+    };
   }
   const game = selectedGame();
   return {
     tone: "good",
     title: "可以开始运行",
     detail: game ? `当前选中：${game.game_name || game.game_id}` : "选择游戏后即可运行。",
+    action: { label: "开始运行", run: true },
   };
 }
 
 function renderNextStep() {
   if (!elements.nextStepCard) return;
   const step = currentNextStep();
+  state.nextStepAction = step.action ?? null;
   elements.nextStepCard.classList.toggle("good", step.tone === "good");
   elements.nextStepCard.classList.toggle("warn", step.tone !== "good");
   elements.nextStepTitle.textContent = step.title;
   elements.nextStepDetail.textContent = step.detail;
+  if (elements.nextStepAction) {
+    elements.nextStepAction.hidden = !step.action;
+    elements.nextStepAction.disabled = !step.action;
+    elements.nextStepAction.textContent = step.action?.label || "查看";
+    elements.nextStepAction.title = step.detail || "";
+  }
+}
+
+async function performNextStepAction() {
+  const action = state.nextStepAction;
+  if (!action) return;
+  if (action.scroll) activateSection(action.scroll);
+  if (action.focus) {
+    activateSection("overview", "workbench", "workbench");
+    requestAnimationFrame(() => document.getElementById(action.focus)?.focus());
+  }
+  if (action.job) await startJob(action.job);
+  if (action.fieldDiff) await checkFieldComposerDiff();
+  if (action.dryRun) await runBatch(false);
+  if (action.run) await runSelectedGame();
 }
 
 function renderConfigForms() {
@@ -756,10 +804,16 @@ function fieldComposerTaxonomyStrip() {
     : tableReady
       ? "待同步"
       : "待配置标签表";
+  const detailText = ready
+    ? "玩法、题材、画风、特色标签等选项来自飞书。"
+    : tableReady
+      ? "点击同步后读取飞书里的单选和多选选项。"
+      : "先在飞书连接里配置标签库表，再同步选项。";
   return `<div class="field-taxonomy-strip ${ready ? "good" : "warn"}">
     <div>
       <span>飞书标签库</span>
       <b>${escapeHtml(statusText)}</b>
+      <small>${escapeHtml(detailText)}</small>
     </div>
     <button class="button small" data-field-taxonomy-sync type="button">同步标签库</button>
   </div>`;
@@ -924,6 +978,8 @@ function setupStepsData() {
   const activeAi = activeAiProvider(ai);
   const feishu = config.feishu ?? {};
   const hasBitableTarget = Boolean(feishu.app_token && feishu.evaluation_table_id);
+  const taxonomyCount = Number(config.taxonomy?.option_count ?? 0);
+  const fieldState = fieldComposerWriteReadiness();
   return [
     {
       title: "填写 AI 模型",
@@ -954,6 +1010,20 @@ function setupStepsData() {
       detail: feishu.ready ? "飞书凭证和目标表格已通过检查。" : "确认 App 权限、App Token 和 Table ID 能正常访问。",
       done: Boolean(feishu.ready),
       action: { label: "检查", job: "feishu-check" },
+    },
+    {
+      title: "同步飞书标签库",
+      detail: taxonomyCount ? `已同步 ${taxonomyCount} 项。` : "读取玩法、题材、画风、特色标签等单选和多选选项。",
+      done: taxonomyCount > 0,
+      action: feishu.taxonomy_table_id
+        ? { label: "同步", job: "taxonomy-sync" }
+        : { label: "去填写", scroll: "config" },
+    },
+    {
+      title: "检查输出字段",
+      detail: fieldState.ok ? "飞书分类表和字段结构已匹配。" : fieldState.detail,
+      done: Boolean(fieldState.ok),
+      action: fieldState.action || { label: "去配置", scroll: "config" },
     },
   ];
 }
@@ -1482,6 +1552,7 @@ function setupActionMarkup(action) {
   const attrs = [
     action.job ? `data-job="${escapeAttr(action.job)}"` : "",
     action.scroll ? `data-scroll="${escapeAttr(action.scroll)}"` : "",
+    action.fieldDiff ? "data-field-diff=\"true\"" : "",
   ].filter(Boolean).join(" ");
   return `<button class="button small setup-action" type="button" ${attrs}>${escapeHtml(action.label)}</button>`;
 }
@@ -1493,6 +1564,7 @@ function bindSetupActions() {
       const job = button.dataset.job;
       if (target) activateSection(target);
       if (job) startJob(job);
+      if (button.dataset.fieldDiff) checkFieldComposerDiff();
     });
   });
 }
@@ -2529,6 +2601,9 @@ function renderConfigContext() {
   const activeAi = activeAiProvider(ai);
   const steps = setupStepsData();
   const done = steps.filter((step) => step.done).length;
+  const taxonomyCount = Number(config.taxonomy?.option_count ?? 0);
+  const fieldState = fieldComposerWriteReadiness();
+  const fieldDiffStatus = fieldComposerStatusLabel(state.fieldComposerDiff?.status);
   const body = `
     <div class="context-metrics">
       ${contextMetric("进度", `${done}/${steps.length}`, done === steps.length ? "good" : "warn")}
@@ -2551,6 +2626,14 @@ function renderConfigContext() {
         ${contextMetric("凭证", feishu.app_id_configured && feishu.app_secret_configured ? "已保存" : "待填", feishu.app_id_configured && feishu.app_secret_configured ? "good" : "bad")}
         ${contextMetric("目标表", feishu.app_token && feishu.evaluation_table_id ? "已填写" : "待填", feishu.app_token && feishu.evaluation_table_id ? "good" : "warn")}
         ${contextMetric("连接", feishu.ready ? "通过" : "待检", feishu.ready ? "good" : "warn")}
+      </div>
+    </section>
+    <section class="context-section">
+      <div class="context-section-head"><span>字段和标签库</span><b>${escapeHtml(fieldState.label)}</b></div>
+      <div class="context-metrics">
+        ${contextMetric("字段", fieldState.ok ? "匹配" : fieldDiffStatus, fieldState.ok ? "good" : "warn")}
+        ${contextMetric("标签库", taxonomyCount ? `${taxonomyCount} 项` : "待同步", taxonomyCount ? "good" : "warn")}
+        ${contextMetric("截图", feishu.upload_screenshots ? "上传附件" : "本地路径", "")}
       </div>
     </section>
     <section class="context-section">
@@ -2981,6 +3064,7 @@ function contextActionMarkup(action) {
   if (!action) return "";
   if (action.job) return `<button class="button small" data-panel-job="${escapeAttr(action.job)}" type="button">${escapeHtml(action.label)}</button>`;
   if (action.scroll) return `<button class="button small" data-panel-jump="${escapeAttr(action.scroll)}" type="button">${escapeHtml(action.label)}</button>`;
+  if (action.fieldDiff) return `<button class="button small" data-panel-field-diff type="button">${escapeHtml(action.label)}</button>`;
   return "";
 }
 
@@ -3048,6 +3132,7 @@ function bindContextPanelActions() {
     });
   });
   $("[data-export-evidence]")?.addEventListener("click", () => exportEvidencePackage(game?.game_id));
+  $("[data-panel-field-diff]")?.addEventListener("click", checkFieldComposerDiff);
   $$("[data-shot-preview]").forEach((link) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
