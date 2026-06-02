@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.7";
+const APP_VERSION_LABEL = "v1.8.3 rc.8";
 
 const state = {
   status: null,
@@ -1096,6 +1096,7 @@ function buildExperienceTestReadiness() {
   const pendingSuggestions = Number(suggestions.pending ?? 0);
   const acceptedSuggestions = Number(suggestions.accepted_actionable ?? 0);
   const previewRecordCount = Number(state.taxonomyWritebackPreview?.record_count ?? 0);
+  const writebackStatus = state.taxonomyWritebackResult?.status || "";
   const readyGames = games.filter((game) => gameHealth(game).done).length;
   const evidenceGames = games.filter((game) => gameHealth(game).evidenceReady).length;
   const dryRun = state.status?.batch?.dry_run ?? null;
@@ -1110,8 +1111,8 @@ function buildExperienceTestReadiness() {
       ? (screenshotUploadStatuses.includes("partial_failed") ? "warn" : "good")
       : "warn"
     : "warn";
-  const taxonomyAction = taxonomyReadinessAction({ pendingSuggestions, acceptedSuggestions, previewRecordCount });
-  const taxonomyDetail = taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, previewRecordCount });
+  const taxonomyAction = taxonomyReadinessAction({ pendingSuggestions, acceptedSuggestions, previewRecordCount, writebackStatus });
+  const taxonomyDetail = taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, previewRecordCount, writebackStatus });
   const screenshotAction = !evidenceGames
     ? { label: "去采集", scroll: "runner", view: "workbench", mode: "queue" }
     : uploadEnabled
@@ -1145,7 +1146,7 @@ function buildExperienceTestReadiness() {
       taxonomyCount > 0 ? null : (feishu.taxonomy_table_id ? { label: "同步", job: "taxonomy-sync" } : { label: "去配置", scroll: "config" }),
     ),
     readinessItem(
-      pendingSuggestions || acceptedSuggestions || previewRecordCount ? "warn" : "good",
+      taxonomyReadinessTone({ pendingSuggestions, acceptedSuggestions, previewRecordCount, writebackStatus }),
       "标签建议复核",
       taxonomyDetail,
       taxonomyAction,
@@ -1202,14 +1203,23 @@ function readinessItem(tone, title, detail, action = null) {
   return { tone, title, detail, action };
 }
 
-function taxonomyReadinessAction({ pendingSuggestions, acceptedSuggestions, previewRecordCount }) {
+function taxonomyReadinessAction({ pendingSuggestions, acceptedSuggestions, previewRecordCount, writebackStatus }) {
+  if (taxonomyWritebackIsComplete(writebackStatus)) return pendingSuggestions ? { label: "去复核", scroll: "taxonomySuggestionReview", view: "config" } : null;
+  if (taxonomyWritebackNeedsRetry(writebackStatus)) return { label: "重试", scroll: "taxonomySuggestionReview", view: "config" };
   if (previewRecordCount) return { label: "去写回", scroll: "taxonomySuggestionReview", view: "config" };
   if (acceptedSuggestions) return { label: "去生成", scroll: "taxonomySuggestionReview", view: "config" };
   if (pendingSuggestions) return { label: "去复核", scroll: "taxonomySuggestionReview", view: "config" };
   return null;
 }
 
-function taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, previewRecordCount }) {
+function taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, previewRecordCount, writebackStatus }) {
+  if (taxonomyWritebackIsComplete(writebackStatus)) {
+    const pendingText = pendingSuggestions ? ` 另有 ${pendingSuggestions} 条待审，可继续复核。` : "";
+    return `标签建议已写回飞书：${taxonomyWritebackStatusLabel(writebackStatus)}。${pendingText}`;
+  }
+  if (taxonomyWritebackNeedsRetry(writebackStatus)) {
+    return `上次写回${taxonomyWritebackStatusLabel(writebackStatus)}，请查看失败项后重试。`;
+  }
   if (previewRecordCount) {
     const pendingText = pendingSuggestions ? ` 另有 ${pendingSuggestions} 条待审，可稍后处理。` : "";
     return `写回预览已有 ${previewRecordCount} 条，确认后再写回飞书。${pendingText}`;
@@ -1220,6 +1230,12 @@ function taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, prev
   }
   if (pendingSuggestions) return `${pendingSuggestions} 条待审，先决定是否加入标签库。`;
   return "暂无待处理新增标签。";
+}
+
+function taxonomyReadinessTone({ pendingSuggestions, acceptedSuggestions, previewRecordCount, writebackStatus }) {
+  if (taxonomyWritebackIsComplete(writebackStatus)) return pendingSuggestions ? "warn" : "good";
+  if (taxonomyWritebackNeedsRetry(writebackStatus)) return "warn";
+  return pendingSuggestions || acceptedSuggestions || previewRecordCount ? "warn" : "good";
 }
 
 function buildExperienceReadinessCopyText(readiness) {
@@ -1606,8 +1622,13 @@ function taxonomySuggestionReviewPanel(workbench) {
   const writeback = state.taxonomyWritebackResult;
   const acceptedActionable = Number(summary.accepted_actionable ?? 0);
   const previewRecordCount = Number(preview?.record_count ?? 0);
-  const canPreview = acceptedActionable > 0;
-  const canWriteback = previewRecordCount > 0;
+  const writebackStatus = writeback?.status || "";
+  const writebackComplete = taxonomyWritebackIsComplete(writebackStatus);
+  const writebackRetry = taxonomyWritebackNeedsRetry(writebackStatus);
+  const canPreview = acceptedActionable > 0 && !writebackComplete;
+  const canWriteback = previewRecordCount > 0 && !writebackComplete;
+  const previewButtonText = writebackComplete ? "已完成" : previewRecordCount ? "重新生成预览" : "生成写回预览";
+  const writebackButtonText = writebackComplete ? "已写回" : writebackRetry ? "重试写回" : "写回飞书";
   const writebackText = writeback
     ? `飞书写回：${taxonomyWritebackStatusLabel(writeback.status)}，新建 ${writeback.created_count ?? 0}，补全 ${writeback.updated_count ?? 0}，跳过 ${writeback.skipped_count ?? 0}`
     : "真实写回只处理已接受项，写入前会查重。";
@@ -1627,8 +1648,8 @@ function taxonomySuggestionReviewPanel(workbench) {
     <div class="taxonomy-preview-actions">
       <span>${escapeHtml(previewHint)}</span>
       <div class="button-row">
-        <button class="button" data-taxonomy-writeback-preview type="button" ${canPreview ? "" : "disabled"}>生成写回预览</button>
-        <button class="button primary" data-taxonomy-writeback type="button" ${canWriteback ? "" : "disabled"}>写回飞书</button>
+        <button class="button" data-taxonomy-writeback-preview type="button" ${canPreview ? "" : "disabled"}>${escapeHtml(previewButtonText)}</button>
+        <button class="button primary" data-taxonomy-writeback type="button" ${canWriteback ? "" : "disabled"}>${escapeHtml(writebackButtonText)}</button>
       </div>
     </div>
   </section>`;
@@ -1749,6 +1770,14 @@ function taxonomyWritebackStatusLabel(status) {
   if (status === "partial_failed") return "部分失败";
   if (status === "failed") return "失败";
   return status || "未执行";
+}
+
+function taxonomyWritebackIsComplete(status) {
+  return ["written", "updated", "skipped", "empty"].includes(status);
+}
+
+function taxonomyWritebackNeedsRetry(status) {
+  return ["partial_failed", "failed"].includes(status);
 }
 
 function taxonomyReviewStatusLabel(status) {
