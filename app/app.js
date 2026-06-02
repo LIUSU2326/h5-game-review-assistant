@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 rc.4";
+const APP_VERSION_LABEL = "v1.8.3 rc.5";
 
 const state = {
   status: null,
@@ -1108,16 +1108,8 @@ function buildExperienceTestReadiness() {
       ? (screenshotUploadStatuses.includes("partial_failed") ? "warn" : "good")
       : "warn"
     : "warn";
-  const taxonomyAction = pendingSuggestions || acceptedSuggestions || previewRecordCount
-    ? { label: previewRecordCount ? "去写回" : "查看", scroll: "taxonomySuggestionReview", view: "config" }
-    : null;
-  const taxonomyDetail = pendingSuggestions
-    ? `${pendingSuggestions} 条待审，先决定是否加入标签库。`
-    : previewRecordCount
-      ? `写回预览已有 ${previewRecordCount} 条，确认后再写回飞书。`
-      : acceptedSuggestions
-        ? `${acceptedSuggestions} 条已接受，写回前需要生成预览。`
-        : "暂无待处理新增标签。";
+  const taxonomyAction = taxonomyReadinessAction({ pendingSuggestions, acceptedSuggestions, previewRecordCount });
+  const taxonomyDetail = taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, previewRecordCount });
   const screenshotAction = !evidenceGames
     ? { label: "去采集", scroll: "runner", view: "workbench", mode: "queue" }
     : uploadEnabled
@@ -1206,6 +1198,26 @@ function buildExperienceTestReadiness() {
 
 function readinessItem(tone, title, detail, action = null) {
   return { tone, title, detail, action };
+}
+
+function taxonomyReadinessAction({ pendingSuggestions, acceptedSuggestions, previewRecordCount }) {
+  if (previewRecordCount) return { label: "去写回", scroll: "taxonomySuggestionReview", view: "config" };
+  if (acceptedSuggestions) return { label: "去生成", scroll: "taxonomySuggestionReview", view: "config" };
+  if (pendingSuggestions) return { label: "去复核", scroll: "taxonomySuggestionReview", view: "config" };
+  return null;
+}
+
+function taxonomyReadinessDetail({ pendingSuggestions, acceptedSuggestions, previewRecordCount }) {
+  if (previewRecordCount) {
+    const pendingText = pendingSuggestions ? ` 另有 ${pendingSuggestions} 条待审，可稍后处理。` : "";
+    return `写回预览已有 ${previewRecordCount} 条，确认后再写回飞书。${pendingText}`;
+  }
+  if (acceptedSuggestions) {
+    const pendingText = pendingSuggestions ? ` 另有 ${pendingSuggestions} 条待审。` : "";
+    return `${acceptedSuggestions} 条已接受，写回前需要生成预览。${pendingText}`;
+  }
+  if (pendingSuggestions) return `${pendingSuggestions} 条待审，先决定是否加入标签库。`;
+  return "暂无待处理新增标签。";
 }
 
 function buildExperienceReadinessCopyText(readiness) {
