@@ -1,4 +1,4 @@
-const APP_VERSION_LABEL = "v1.8.3 beta.2";
+const APP_VERSION_LABEL = "v1.8.3 beta.3";
 
 const state = {
   status: null,
@@ -590,7 +590,7 @@ function renderNextStep() {
 async function performNextStepAction() {
   const action = state.nextStepAction;
   if (!action) return;
-  if (action.scroll) activateSection(action.scroll);
+  if (action.scroll) activateSection(action.scroll, action.view, action.mode);
   if (action.focus) {
     activateSection("overview", "workbench", "workbench");
     requestAnimationFrame(() => document.getElementById(action.focus)?.focus());
@@ -1067,6 +1067,7 @@ function buildExperienceTestReadiness() {
   const suggestions = state.taxonomySuggestions?.summary ?? {};
   const pendingSuggestions = Number(suggestions.pending ?? 0);
   const acceptedSuggestions = Number(suggestions.accepted_actionable ?? 0);
+  const previewRecordCount = Number(state.taxonomyWritebackPreview?.record_count ?? 0);
   const readyGames = games.filter((game) => gameHealth(game).done).length;
   const evidenceGames = games.filter((game) => gameHealth(game).evidenceReady).length;
   const dryRun = state.status?.batch?.dry_run ?? null;
@@ -1081,6 +1082,21 @@ function buildExperienceTestReadiness() {
       ? (screenshotUploadStatuses.includes("partial_failed") ? "warn" : "good")
       : "warn"
     : "warn";
+  const taxonomyAction = pendingSuggestions || acceptedSuggestions || previewRecordCount
+    ? { label: previewRecordCount ? "去写回" : "查看", scroll: "taxonomySuggestionReview", view: "config" }
+    : null;
+  const taxonomyDetail = pendingSuggestions
+    ? `${pendingSuggestions} 条待审，先决定是否加入标签库。`
+    : previewRecordCount
+      ? `写回预览已有 ${previewRecordCount} 条，确认后再写回飞书。`
+      : acceptedSuggestions
+        ? `${acceptedSuggestions} 条已接受，写回前需要生成预览。`
+        : "暂无待处理新增标签。";
+  const screenshotAction = !evidenceGames
+    ? { label: "去采集", scroll: "runner", view: "workbench", mode: "queue" }
+    : uploadEnabled
+      ? { label: "去复核", scroll: "results", view: "workbench", mode: "review" }
+      : { label: "去开启", scroll: "feishuForm", view: "config" };
   const rows = [
     readinessItem(
       activeAi?.runtime_ready && activeAi.latest_check_status === "ok" ? "good" : "bad",
@@ -1109,14 +1125,10 @@ function buildExperienceTestReadiness() {
       taxonomyCount > 0 ? null : (feishu.taxonomy_table_id ? { label: "同步", job: "taxonomy-sync" } : { label: "去配置", scroll: "config" }),
     ),
     readinessItem(
-      pendingSuggestions || acceptedSuggestions ? "warn" : "good",
+      pendingSuggestions || acceptedSuggestions || previewRecordCount ? "warn" : "good",
       "标签建议复核",
-      pendingSuggestions
-        ? `${pendingSuggestions} 条待审，先决定是否加入标签库。`
-        : acceptedSuggestions
-          ? `${acceptedSuggestions} 条已接受，写回前需要生成预览。`
-          : "暂无待处理新增标签。",
-      pendingSuggestions || acceptedSuggestions ? { label: "查看", scroll: "config" } : null,
+      taxonomyDetail,
+      taxonomyAction,
     ),
     readinessItem(
       games.length ? (readyGames ? "good" : "warn") : "bad",
@@ -1144,7 +1156,7 @@ function buildExperienceTestReadiness() {
             : `${evidenceGames} 款可复核，仍需验证飞书附件能否直接查看。`
           : `${evidenceGames} 款可复核；当前只写本地路径，不验证飞书附件预览。`
         : "还没有足够截图证据，先跑单款采集。",
-      evidenceGames ? null : { label: "看复核", scroll: "results" },
+      evidenceGames && screenshotTone === "good" ? null : screenshotAction,
     ),
   ];
   const blocking = rows.filter((item) => item.tone === "bad").length;
@@ -1538,7 +1550,7 @@ function taxonomySuggestionReviewPanel(workbench) {
     : acceptedActionable
       ? `已接受 ${acceptedActionable} 项，先生成写回预览再写回飞书。`
       : "先接受需要补充的标签建议，再生成写回预览。";
-  return `<section class="config-mini-panel taxonomy-review-panel">
+  return `<section class="config-mini-panel taxonomy-review-panel" id="taxonomySuggestionReview">
     <div class="mini-panel-head">
       <span>标签建议复核</span>
       <b>${escapeHtml(`${summary.pending ?? 0} 待审 / ${summary.preflight ?? 0} 预检 / ${summary.total ?? 0} 总计`)}</b>
@@ -3390,6 +3402,8 @@ function contextActionMarkup(action) {
   const attrs = [
     action.job ? `data-panel-job="${escapeAttr(action.job)}"` : "",
     action.scroll ? `data-panel-jump="${escapeAttr(action.scroll)}"` : "",
+    action.view ? `data-panel-view="${escapeAttr(action.view)}"` : "",
+    action.mode ? `data-panel-mode="${escapeAttr(action.mode)}"` : "",
     action.fieldDiff ? "data-panel-field-diff=\"true\"" : "",
   ].filter(Boolean).join(" ");
   if (attrs) return `<button class="button small" ${attrs} type="button">${escapeHtml(action.label)}</button>`;
